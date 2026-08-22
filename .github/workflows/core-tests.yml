@@ -1,0 +1,26 @@
+name: Godot Core Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Godot version
+        run: godot --version
+
+      - name: Solver smoke tests
+        run: godot --headless --path . --script tests/core_solver_smoke.gd
+
+      - name: Generator and validator smoke tests
+        run: godot --headless --path . --script tests/generator_validator_smoke.gd
