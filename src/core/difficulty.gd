@@ -1,10 +1,10 @@
 class_name DifficultyEstimator
 extends RefCounted
 
-func estimate(board: BoardState, solution: Array[String]) -> Dictionary:
+func estimate(board, solution: Array[String]) -> Dictionary:
 	var branching_sum := 0
 	var max_branching := 0
-	var state := board.copy()
+	var state = board.copy()
 
 	for piece_id in solution:
 		var legal := state.legal_moves()
