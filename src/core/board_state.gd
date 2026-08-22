@@ -1,6 +1,8 @@
 class_name BoardState
 extends RefCounted
 
+const FlowPieceScript = preload("res://src/core/piece.gd")
+
 var width: int
 var height: int
 var pieces: Dictionary = {}
@@ -18,7 +20,7 @@ func occupied_by(cell: Vector2i, ignored_piece_id: String = "") -> String:
 	for piece_id in pieces:
 		if piece_id == ignored_piece_id:
 			continue
-		var piece: FlowPiece = pieces[piece_id]
+		var piece = pieces[piece_id]
 		if cell in piece.cells:
 			return piece_id
 	return ""
@@ -26,7 +28,7 @@ func occupied_by(cell: Vector2i, ignored_piece_id: String = "") -> String:
 func can_exit(piece_id: String) -> bool:
 	if not pieces.has(piece_id):
 		return false
-	var piece: FlowPiece = pieces[piece_id]
+	var piece = pieces[piece_id]
 	for origin in piece.cells:
 		var cursor := origin + piece.direction
 		while is_inside(cursor):
@@ -52,11 +54,11 @@ func remove_piece(piece_id: String) -> bool:
 func is_solved() -> bool:
 	return pieces.is_empty()
 
-func copy() -> BoardState:
+func copy():
 	var cloned: Array = []
 	for piece_id in pieces:
-		cloned.append((pieces[piece_id] as FlowPiece).copy())
-	return BoardState.new(width, height, cloned)
+		cloned.append(pieces[piece_id].copy())
+	return get_script().new(width, height, cloned)
 
 func state_key() -> String:
 	var ids := pieces.keys()
