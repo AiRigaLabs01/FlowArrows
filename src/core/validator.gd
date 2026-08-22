@@ -1,7 +1,9 @@
 class_name FlowValidator
 extends RefCounted
 
-func validate(board: BoardState) -> Dictionary:
+const SolverScript = preload("res://src/core/solver.gd")
+
+func validate(board) -> Dictionary:
 	var errors: Array[String] = []
 	var seen_cells: Dictionary = {}
 
@@ -9,7 +11,7 @@ func validate(board: BoardState) -> Dictionary:
 		errors.append("Board dimensions must be positive")
 
 	for piece_id in board.pieces:
-		var piece: FlowPiece = board.pieces[piece_id]
+		var piece = board.pieces[piece_id]
 		if piece.cells.is_empty():
 			errors.append("Piece %s has no cells" % piece_id)
 		if piece.direction not in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
@@ -23,7 +25,7 @@ func validate(board: BoardState) -> Dictionary:
 			else:
 				seen_cells[key] = piece_id
 
-	var solver := FlowSolver.new()
+	var solver = SolverScript.new()
 	var solution := solver.solve(board)
 	if not board.is_solved() and solution.is_empty():
 		errors.append("Board is not solvable")
