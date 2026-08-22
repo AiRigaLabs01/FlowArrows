@@ -23,4 +23,4 @@ jobs:
         run: godot --headless --path . --script tests/core_solver_smoke.gd
 
       - name: Generator and validator smoke tests
-        run: godot --headless --path . --script tests/generator_validator_smoke.gd
+        run: godot --headless --path . --script tests/generator_smoke.gd
