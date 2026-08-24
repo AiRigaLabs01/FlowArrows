@@ -10,7 +10,7 @@ func solve(initial_state) -> Array[String]:
 func _search(state, visited: Dictionary) -> Array[String]:
 	if state.is_solved():
 		return []
-	var key := state.state_key()
+	var key: String = state.state_key()
 	if visited.has(key):
 		return NO_SOLUTION
 	visited[key] = true
@@ -18,7 +18,7 @@ func _search(state, visited: Dictionary) -> Array[String]:
 		var next_state = state.copy()
 		if not next_state.remove_piece(piece_id):
 			continue
-		var tail := _search(next_state, visited)
+		var tail: Array[String] = _search(next_state, visited)
 		if next_state.is_solved() or not tail.is_empty():
 			var solution: Array[String] = [piece_id]
 			solution.append_array(tail)
