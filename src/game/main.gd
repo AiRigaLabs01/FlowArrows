@@ -20,17 +20,17 @@ var hint_label: Label
 var new_level_button: Button
 var restart_button: Button
 var hint_button: Button
-var generator := FlowGenerator.new()
-var level_number := 1
-var moves := 0
-var input_locked := false
+var generator = FlowGenerator.new()
+var level_number: int = 1
+var moves: int = 0
+var input_locked: bool = false
 
 func _ready() -> void:
 	_build_ui()
 	_start_new_level()
 
 func _build_ui() -> void:
-	var title := Label.new()
+	var title: Label = Label.new()
 	title.text = "FlowArrows"
 	title.position = Vector2(80, 70)
 	title.add_theme_font_size_override("font_size", 52)
@@ -84,7 +84,7 @@ func _start_new_level() -> void:
 	input_locked = false
 	moves = 0
 	hint_label.text = ""
-	var piece_count := min(START_PIECES + int((level_number - 1) / 2), 9)
+	var piece_count: int = mini(START_PIECES + int((level_number - 1) / 2), 9)
 	var generated: Dictionary = generator.generate_chain(piece_count, Vector2i(7, 7))
 	board = generated["board"]
 	initial_board = board.copy()
@@ -129,8 +129,8 @@ func _on_piece_pressed(piece_id: String, view) -> void:
 	input_locked = true
 	_set_piece_input_enabled(false)
 	var piece = board.pieces[piece_id]
-	var target := view.position + Vector2(piece.direction) * EXIT_DISTANCE
-	var tween := create_tween()
+	var target: Vector2 = view.position + Vector2(piece.direction) * EXIT_DISTANCE
+	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.tween_property(view, "position", target, 0.32)
 	tween.tween_callback(_finish_remove.bind(piece_id, view))
@@ -156,15 +156,15 @@ func _show_hint() -> void:
 	if solution.is_empty():
 		hint_label.text = "No solution found"
 		return
-	var suggested := solution[0]
+	var suggested: String = solution[0]
 	hint_label.text = "Suggested move highlighted"
 	if piece_nodes.has(suggested):
 		piece_nodes[suggested].set_hint(true)
 
 func _set_piece_input_enabled(value: bool) -> void:
 	for piece_id in piece_nodes:
-		var enabled := value and board.can_exit(piece_id)
-		piece_nodes[piece_id].set_enabled(enabled)
+		var piece_enabled: bool = value and board.can_exit(piece_id)
+		piece_nodes[piece_id].set_enabled(piece_enabled)
 
 func _update_status() -> void:
 	level_label.text = "Level %d · %d pieces left" % [level_number, board.pieces.size()]
