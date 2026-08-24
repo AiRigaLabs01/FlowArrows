@@ -173,24 +173,51 @@ jobs:
           grep -nE 'android|java|keystore|sdk|adb' ~/.config/godot/editor_settings-4.4.tres || true
           exit "$status"
 
-      - name: Create direct Android export validator
+      - name: Run direct Android environment validator
         run: |
-          mkdir -p .ci
-          cat > .ci/android_export_validator.gd <<'EOF'
-          @tool
-          extends EditorScript
+          mkdir -p .ci build/android
+          cat > .ci/android_env_validator.gd <<'EOF'
+          extends SceneTree
 
-          func _run() -> void:
-              print("=== DIRECT GODOT EXPORT VALIDATOR ===")
-              var export_singleton = EditorInterface.get_editor_settings()
-              print("android_sdk_path=", export_singleton.get_setting("export/android/android_sdk_path"))
-              print("java_sdk_path=", export_singleton.get_setting("export/android/java_sdk_path"))
-              print("debug_keystore=", export_singleton.get_setting("export/android/debug_keystore"))
-              print("debug_keystore_pass_set=", str(export_singleton.get_setting("export/android/debug_keystore_pass")).length() > 0)
-              print("NOTE: Godot 4.4 does not expose EditorExportPlatform.can_export() to GDScript in all builds; this script verifies normalized editor settings from inside the editor process.")
-              print("=== END DIRECT GODOT EXPORT VALIDATOR ===")
+          func _initialize() -> void:
+              print("=== DIRECT GODOT ANDROID ENV VALIDATOR ===")
+              print("ANDROID_HOME=", OS.get_environment("ANDROID_HOME"))
+              print("ANDROID_SDK_ROOT=", OS.get_environment("ANDROID_SDK_ROOT"))
+              print("JAVA_HOME=", OS.get_environment("JAVA_HOME"))
+              print("home=", OS.get_environment("HOME"))
+              var checks := [
+                  "/usr/lib/android-sdk",
+                  "/usr/lib/android-sdk/platforms/android-34/android.jar",
+                  "/usr/lib/android-sdk/build-tools/34.0.0/aapt2",
+                  "/usr/lib/android-sdk/build-tools/34.0.0/apksigner",
+                  "/usr/lib/android-sdk/platform-tools/adb",
+                  "/usr/lib/android-sdk/ndk/23.2.8568313",
+                  "/usr/lib/android-sdk/cmake/3.10.2.4988404",
+                  "/usr/lib/jvm/java-17-openjdk-amd64/bin/java",
+                  "/usr/lib/jvm/java-17-openjdk-amd64/bin/javac",
+                  "/github/home/.android/debug.keystore",
+                  "/github/home/.local/share/godot/export_templates/4.4.stable/android_debug.apk",
+              ]
+              for path in checks:
+                  print("exists ", path, " = ", FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path))
+              var config := ConfigFile.new()
+              var err := config.load("res://export_presets.cfg")
+              print("export_presets_load_error=", err)
+              print("preset_name=", config.get_value("preset.1", "name", "<missing>"))
+              print("preset_platform=", config.get_value("preset.1", "platform", "<missing>"))
+              print("arm64=", config.get_value("preset.1.options", "architectures/arm64-v8a", "<missing>"))
+              print("debug_keystore=", config.get_value("preset.1.options", "keystore/debug", "<missing>"))
+              print("debug_user=", config.get_value("preset.1.options", "keystore/debug_user", "<missing>"))
+              print("debug_password_set=", str(config.get_value("preset.1.options", "keystore/debug_password", "")).length() > 0)
+              print("=== END DIRECT GODOT ANDROID ENV VALIDATOR ===")
+              quit(0)
           EOF
-          godot --headless --editor --path . --script .ci/android_export_validator.gd 2>&1 | tee build/android/godot-direct-validator.log || true
+          set +e
+          godot --headless --path . --script .ci/android_env_validator.gd > build/android/godot-direct-validator.log 2>&1
+          status=$?
+          set -e
+          cat build/android/godot-direct-validator.log
+          exit "$status"
 
       - name: Pre-export diagnostics
         run: |
