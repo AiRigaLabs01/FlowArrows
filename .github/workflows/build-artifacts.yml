@@ -100,8 +100,14 @@ jobs:
           export/android/debug_keystore = "/github/home/.android/debug.keystore"
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
+          export/android/force_system_user = false
           EOF
           cat ~/.config/godot/editor_settings-4.4.tres
+
+      - name: Verify Godot Android config
+        run: |
+          godot --headless --editor --quit --path . --verbose
+          grep -E 'android_sdk_path|java_sdk_path|debug_keystore' ~/.config/godot/editor_settings-4.4.tres
 
       - name: Build Android debug APK
         run: |
