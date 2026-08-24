@@ -1,0 +1,68 @@
+name: Build Playable Artifacts
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows EXE
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare export templates
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates
+          mv /root/.local/share/godot/export_templates/4.4.stable ~/.local/share/godot/export_templates/4.4.stable
+
+      - name: Build Windows
+        run: |
+          mkdir -p build/windows
+          godot --headless --verbose --export-release "Windows Desktop" "$(pwd)/build/windows/FlowArrows.exe"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowArrows-Windows
+          path: build/windows
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Godot Android environment
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates
+          mkdir -p ~/.config
+          mv /root/.local/share/godot/export_templates/4.4.stable ~/.local/share/godot/export_templates/4.4.stable
+          mv /root/.config/godot ~/.config/godot
+
+      - name: Build Android debug APK
+        run: |
+          mkdir -p build/android
+          godot --headless --verbose --export-debug "Android Debug" "$(pwd)/build/android/FlowArrows-debug.apk"
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowArrows-Android
+          path: build/android/FlowArrows-debug.apk
+          if-no-files-found: error
+          retention-days: 14
