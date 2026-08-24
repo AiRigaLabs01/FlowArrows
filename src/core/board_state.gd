@@ -29,12 +29,19 @@ func can_exit(piece_id: String) -> bool:
 	if not pieces.has(piece_id):
 		return false
 	var piece = pieces[piece_id]
-	for origin in piece.cells:
-		var cursor: Vector2i = Vector2i(origin) + Vector2i(piece.direction)
-		while is_inside(cursor):
-			if occupied_by(cursor, piece_id) != "":
+	var offset := Vector2i.ZERO
+	while true:
+		offset += Vector2i(piece.direction)
+		var any_inside := false
+		for origin in piece.cells:
+			var translated: Vector2i = Vector2i(origin) + offset
+			if not is_inside(translated):
+				continue
+			any_inside = true
+			if occupied_by(translated, piece_id) != "":
 				return false
-			cursor += Vector2i(piece.direction)
+		if not any_inside:
+			return true
 	return true
 
 func legal_moves() -> Array[String]:
