@@ -54,10 +54,10 @@ jobs:
           mv /root/.local/share/godot/export_templates/4.4.stable ~/.local/share/godot/export_templates/4.4.stable
           mv /root/.config/godot ~/.config/godot
 
-      - name: Install Android SDK 34
+      - name: Install Android SDK 35
         run: |
           yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build Android debug APK
         run: |
