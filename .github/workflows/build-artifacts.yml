@@ -43,21 +43,40 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: barichello/godot-ci:4.4
+    env:
+      ANDROID_HOME: /usr/lib/android-sdk
+      ANDROID_SDK_ROOT: /usr/lib/android-sdk
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Prepare Godot Android environment
+      - name: Prepare export templates
         run: |
           mkdir -p ~/.local/share/godot/export_templates
-          mkdir -p ~/.config
           mv /root/.local/share/godot/export_templates/4.4.stable ~/.local/share/godot/export_templates/4.4.stable
-          mv /root/.config/godot ~/.config/godot
 
-      - name: Install Android SDK 35
+      - name: Install Android SDK 34
         run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          test -x "$ANDROID_HOME/build-tools/34.0.0/aapt2"
+
+      - name: Create fresh Godot editor settings
+        run: |
+          rm -rf ~/.config/godot
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-4.4.tres <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          EOF
+          cat ~/.config/godot/editor_settings-4.4.tres
 
       - name: Build Android debug APK
         run: |
