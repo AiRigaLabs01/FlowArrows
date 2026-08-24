@@ -28,7 +28,7 @@ jobs:
       - name: Build Windows
         run: |
           mkdir -p build/windows
-          godot --headless --verbose --export-release "Windows Desktop" "$(pwd)/build/windows/FlowArrows.exe"
+          godot --headless --export-release "Windows Desktop" "$(pwd)/build/windows/FlowArrows.exe"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v6
@@ -51,37 +51,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Diagnose Godot and export templates
-        run: |
-          echo '=== Godot version ==='
-          godot --version
-          echo '=== Original export template tree ==='
-          find /root/.local/share/godot/export_templates -maxdepth 2 -type f -printf '%p\n' | sort || true
-          echo '=== Project export preset ==='
-          cat export_presets.cfg
-
       - name: Prepare export templates
         run: |
           mkdir -p ~/.local/share/godot/export_templates
           mv /root/.local/share/godot/export_templates/4.4.stable ~/.local/share/godot/export_templates/4.4.stable
-          echo '=== Installed export templates ==='
-          find ~/.local/share/godot/export_templates/4.4.stable -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
           test -f ~/.local/share/godot/export_templates/4.4.stable/android_debug.apk
-          test -f ~/.local/share/godot/export_templates/4.4.stable/android_release.apk
 
-      - name: Verify Java
-        run: |
-          echo '=== Java paths ==='
-          echo "JAVA_HOME=$JAVA_HOME"
-          command -v java
-          command -v keytool
-          readlink -f "$(command -v java)"
-          test -x "$JAVA_HOME/bin/java"
-          test -x "$JAVA_HOME/bin/keytool"
-          "$JAVA_HOME/bin/java" -version
-          "$JAVA_HOME/bin/javac" -version
-
-      - name: Install complete Godot 4.4 Android toolchain
+      - name: Install Android toolchain
         run: |
           yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null
           sdkmanager --sdk_root="$ANDROID_HOME" \
@@ -92,39 +68,16 @@ jobs:
             "cmake;3.10.2.4988404" \
             "ndk;23.2.8568313"
 
-          echo '=== Android environment ==='
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          echo '=== Relevant SDK directories ==='
-          find "$ANDROID_HOME" -maxdepth 2 -type d | sort | grep -E 'build-tools|platforms|platform-tools|cmdline-tools|cmake|ndk' || true
-          echo '=== Installed SDK packages ==='
-          sdkmanager --sdk_root="$ANDROID_HOME" --list_installed || true
-
-          test -x "$ANDROID_HOME/platform-tools/adb"
+          test -f "$ANDROID_HOME/platforms/android-34/android.jar"
           test -x "$ANDROID_HOME/build-tools/34.0.0/aapt2"
           test -x "$ANDROID_HOME/build-tools/34.0.0/apksigner"
-          test -d "$ANDROID_HOME/cmdline-tools/latest"
-          test -d "$ANDROID_HOME/cmake/3.10.2.4988404"
-          test -d "$ANDROID_HOME/ndk/23.2.8568313"
-
-          echo '=== Tool versions ==='
-          "$ANDROID_HOME/platform-tools/adb" version
-          "$ANDROID_HOME/build-tools/34.0.0/aapt2" version
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" version || true
-
-      - name: Start ADB server for diagnostics
-        run: |
-          echo '=== ADB before start ==='
-          "$ANDROID_HOME/platform-tools/adb" devices -l || true
-          "$ANDROID_HOME/platform-tools/adb" start-server
-          echo '=== ADB after start ==='
-          "$ANDROID_HOME/platform-tools/adb" devices -l || true
+          test -x "$JAVA_HOME/bin/java"
+          test -x "$JAVA_HOME/bin/keytool"
 
       - name: Create Android debug keystore
         run: |
           mkdir -p ~/.android
           "$JAVA_HOME/bin/keytool" -genkeypair \
-            -v \
             -keystore ~/.android/debug.keystore \
             -storepass android \
             -alias androiddebugkey \
@@ -134,14 +87,8 @@ jobs:
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
           test -f ~/.android/debug.keystore
-          echo '=== Debug keystore ==='
-          ls -l ~/.android/debug.keystore
-          "$JAVA_HOME/bin/keytool" -list -v \
-            -keystore ~/.android/debug.keystore \
-            -storepass android \
-            -alias androiddebugkey | grep -E 'Alias name:|Entry type:|Certificate fingerprints:|SHA256:' || true
 
-      - name: Create fresh Godot editor settings
+      - name: Configure Godot Android export
         run: |
           rm -rf ~/.config/godot
           mkdir -p ~/.config/godot
@@ -153,122 +100,17 @@ jobs:
           export/android/java_sdk_path = "$JAVA_HOME"
           export/android/debug_keystore = "/github/home/.android/debug.keystore"
           export/android/debug_keystore_pass = "android"
-          export/android/force_system_user = false
           EOF
-          echo '=== Editor settings before Godot ==='
-          cat ~/.config/godot/editor_settings-4.4.tres
 
-      - name: Let Godot normalize Android settings
-        run: |
-          mkdir -p build/android
-          set +e
-          godot --headless --editor --quit --path . --verbose > build/android/godot-editor-init.log 2>&1
-          status=$?
-          set -e
-          cat build/android/godot-editor-init.log
-          echo "Godot editor init exit code: $status"
-          echo '=== Editor settings after Godot ==='
-          cat ~/.config/godot/editor_settings-4.4.tres
-          echo '=== Android-related normalized settings ==='
-          grep -nE 'android|java|keystore|sdk|adb' ~/.config/godot/editor_settings-4.4.tres || true
-          exit "$status"
-
-      - name: Run direct Android environment validator
-        run: |
-          mkdir -p .ci build/android
-          cat > .ci/android_env_validator.gd <<'EOF'
-          extends SceneTree
-
-          func _initialize() -> void:
-              print("=== DIRECT GODOT ANDROID ENV VALIDATOR ===")
-              print("ANDROID_HOME=", OS.get_environment("ANDROID_HOME"))
-              print("ANDROID_SDK_ROOT=", OS.get_environment("ANDROID_SDK_ROOT"))
-              print("JAVA_HOME=", OS.get_environment("JAVA_HOME"))
-              print("home=", OS.get_environment("HOME"))
-              var checks := [
-                  "/usr/lib/android-sdk",
-                  "/usr/lib/android-sdk/platforms/android-34/android.jar",
-                  "/usr/lib/android-sdk/build-tools/34.0.0/aapt2",
-                  "/usr/lib/android-sdk/build-tools/34.0.0/apksigner",
-                  "/usr/lib/android-sdk/platform-tools/adb",
-                  "/usr/lib/android-sdk/ndk/23.2.8568313",
-                  "/usr/lib/android-sdk/cmake/3.10.2.4988404",
-                  "/usr/lib/jvm/java-17-openjdk-amd64/bin/java",
-                  "/usr/lib/jvm/java-17-openjdk-amd64/bin/javac",
-                  "/github/home/.android/debug.keystore",
-                  "/github/home/.local/share/godot/export_templates/4.4.stable/android_debug.apk",
-              ]
-              for path in checks:
-                  print("exists ", path, " = ", FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path))
-              var config := ConfigFile.new()
-              var err := config.load("res://export_presets.cfg")
-              print("export_presets_load_error=", err)
-              print("preset_name=", config.get_value("preset.1", "name", "<missing>"))
-              print("preset_platform=", config.get_value("preset.1", "platform", "<missing>"))
-              print("arm64=", config.get_value("preset.1.options", "architectures/arm64-v8a", "<missing>"))
-              print("debug_keystore=", config.get_value("preset.1.options", "keystore/debug", "<missing>"))
-              print("debug_user=", config.get_value("preset.1.options", "keystore/debug_user", "<missing>"))
-              print("debug_password_set=", str(config.get_value("preset.1.options", "keystore/debug_password", "")).length() > 0)
-              print("=== END DIRECT GODOT ANDROID ENV VALIDATOR ===")
-              quit(0)
-          EOF
-          set +e
-          godot --headless --path . --script .ci/android_env_validator.gd > build/android/godot-direct-validator.log 2>&1
-          status=$?
-          set -e
-          cat build/android/godot-direct-validator.log
-          exit "$status"
-
-      - name: Pre-export diagnostics
-        run: |
-          echo '=== File/path checks immediately before export ==='
-          for path in \
-            "$ANDROID_HOME" \
-            "$JAVA_HOME" \
-            "/github/home/.android/debug.keystore" \
-            "/github/home/.local/share/godot/export_templates/4.4.stable/android_debug.apk"; do
-            if [ -e "$path" ]; then
-              echo "OK: $path"
-            else
-              echo "MISSING: $path"
-            fi
-          done
-          echo '=== export_presets.cfg with line numbers ==='
-          nl -ba export_presets.cfg
-          echo '=== ADB status immediately before export ==='
-          "$ANDROID_HOME/platform-tools/adb" devices -l || true
-
-      - name: Build Android debug APK with captured log
+      - name: Build Android debug APK
         env:
           GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /github/home/.android/debug.keystore
           GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
           GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
           mkdir -p build/android
-          echo '=== Starting Godot Android export ==='
-          set +e
-          godot --headless --verbose --path . --export-debug "Android Debug" "$(pwd)/build/android/FlowArrows-debug.apk" > build/android/godot-android-export.log 2>&1
-          status=$?
-          set -e
-          cat build/android/godot-android-export.log
-          echo "=== Godot export exit code: $status ==="
-          echo '=== Focused diagnostics from export log ==='
-          grep -niE 'error|warning|android|sdk|java|jdk|keystore|template|architecture|adb|export' build/android/godot-android-export.log || true
-          echo '=== Output directory ==='
-          find build/android -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
-          exit "$status"
-
-      - name: Upload Android diagnostic log
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: FlowArrows-Android-Diagnostics
-          path: |
-            build/android/godot-editor-init.log
-            build/android/godot-direct-validator.log
-            build/android/godot-android-export.log
-          if-no-files-found: warn
-          retention-days: 14
+          godot --headless --path . --export-debug "Android Debug" "$(pwd)/build/android/FlowArrows-debug.apk"
+          test -f build/android/FlowArrows-debug.apk
 
       - name: Upload Android artifact
         uses: actions/upload-artifact@v6
