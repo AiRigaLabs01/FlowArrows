@@ -18,7 +18,7 @@ jobs:
       image: barichello/godot-ci:4.4
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Prepare export templates
         run: |
@@ -31,7 +31,7 @@ jobs:
           godot --headless --verbose --export-release "Windows Desktop" "$(pwd)/build/windows/FlowArrows.exe"
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: FlowArrows-Windows
           path: build/windows
@@ -45,7 +45,7 @@ jobs:
       image: barichello/godot-ci:4.4
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Prepare Godot Android environment
         run: |
@@ -60,7 +60,7 @@ jobs:
           godot --headless --verbose --export-debug "Android Debug" "$(pwd)/build/android/FlowArrows-debug.apk"
 
       - name: Upload Android artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: FlowArrows-Android
           path: build/android/FlowArrows-debug.apk
