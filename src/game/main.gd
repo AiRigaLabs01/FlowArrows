@@ -1,9 +1,9 @@
 extends Node2D
 
-const FlowPiece = preload("res://src/core/piece.gd")
 const BoardState = preload("res://src/core/board_state.gd")
 const FlowSolver = preload("res://src/core/solver.gd")
 const FlowGenerator = preload("res://src/core/generator.gd")
+const PieceView = preload("res://src/game/piece_view.gd")
 
 const CELL_SIZE := 120.0
 const BOARD_ORIGIN := Vector2(120, 420)
@@ -107,59 +107,64 @@ func _next_level() -> void:
 	_start_new_level()
 
 func _render_board() -> void:
-	for child in get_children():
-		if child.has_meta("piece_id"):
-			child.queue_free()
+	for node in piece_nodes.values():
+		if is_instance_valid(node):
+			node.queue_free()
 	piece_nodes.clear()
 
 	for piece_id in board.pieces:
 		var piece = board.pieces[piece_id]
-		var button := Button.new()
-		button.set_meta("piece_id", piece_id)
-		button.text = "%s  %s" % [piece_id, _arrow_for(piece.direction)]
-		button.position = BOARD_ORIGIN + Vector2(piece.cells[0].x, piece.cells[0].y) * CELL_SIZE
-		button.size = Vector2(CELL_SIZE - 12.0, CELL_SIZE - 12.0)
-		button.add_theme_font_size_override("font_size", 34)
-		button.disabled = input_locked or not board.can_exit(piece_id)
-		button.pressed.connect(_on_piece_pressed.bind(piece_id, button))
-		add_child(button)
-		piece_nodes[piece_id] = button
+		var view = PieceView.new()
+		view.set_meta("piece_id", piece_id)
+		view.position = BOARD_ORIGIN + Vector2(piece.cells[0]) * CELL_SIZE
+		view.setup(piece_id, piece.cells, piece.direction, CELL_SIZE)
+		view.set_enabled(not input_locked and board.can_exit(piece_id))
+		view.pressed.connect(_on_piece_pressed)
+		add_child(view)
+		piece_nodes[piece_id] = view
 
-func _on_piece_pressed(piece_id: String, button: Button) -> void:
+func _on_piece_pressed(piece_id: String, view) -> void:
 	if input_locked or not board.can_exit(piece_id):
 		return
 	input_locked = true
+	_set_piece_input_enabled(false)
 	var piece = board.pieces[piece_id]
-	button.disabled = true
-	var target := button.position + Vector2(piece.direction) * EXIT_DISTANCE
+	var target := view.position + Vector2(piece.direction) * EXIT_DISTANCE
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.tween_property(button, "position", target, 0.32)
-	tween.tween_callback(_finish_remove.bind(piece_id, button))
+	tween.tween_property(view, "position", target, 0.32)
+	tween.tween_callback(_finish_remove.bind(piece_id, view))
 
-func _finish_remove(piece_id: String, button: Button) -> void:
+func _finish_remove(piece_id: String, view) -> void:
 	board.remove_piece(piece_id)
 	moves += 1
-	button.queue_free()
+	piece_nodes.erase(piece_id)
+	view.queue_free()
 	input_locked = false
 	hint_label.text = ""
+	_render_board()
+	_update_status()
 	if board.is_solved():
-		_render_board()
-		_update_status()
 		status_label.text = "Solved! Tap New level"
-	else:
-		_render_board()
-		_update_status()
 
 func _show_hint() -> void:
 	if input_locked or board.is_solved():
 		return
+	for node in piece_nodes.values():
+		node.set_hint(false)
 	var solution: Array[String] = FlowSolver.new().solve(board)
 	if solution.is_empty():
 		hint_label.text = "No solution found"
 		return
 	var suggested := solution[0]
-	hint_label.text = "Try: %s %s" % [suggested, _arrow_for(board.pieces[suggested].direction)]
+	hint_label.text = "Suggested move highlighted"
+	if piece_nodes.has(suggested):
+		piece_nodes[suggested].set_hint(true)
+
+func _set_piece_input_enabled(value: bool) -> void:
+	for piece_id in piece_nodes:
+		var enabled := value and board.can_exit(piece_id)
+		piece_nodes[piece_id].set_enabled(enabled)
 
 func _update_status() -> void:
 	level_label.text = "Level %d · %d pieces left" % [level_number, board.pieces.size()]
@@ -169,12 +174,3 @@ func _update_status() -> void:
 		status_label.text = "Solved!"
 	else:
 		status_label.text = "Available moves: %d" % legal.size()
-
-func _arrow_for(direction: Vector2i) -> String:
-	if direction == Vector2i.UP:
-		return "↑"
-	if direction == Vector2i.DOWN:
-		return "↓"
-	if direction == Vector2i.LEFT:
-		return "←"
-	return "→"
