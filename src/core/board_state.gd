@@ -22,7 +22,7 @@ func occupied_by(cell: Vector2i, ignored_piece_id: String = "") -> String:
 			continue
 		var piece = pieces[piece_id]
 		if cell in piece.cells:
-			return piece_id
+			return String(piece_id)
 	return ""
 
 func can_exit(piece_id: String) -> bool:
@@ -30,18 +30,19 @@ func can_exit(piece_id: String) -> bool:
 		return false
 	var piece = pieces[piece_id]
 	for origin in piece.cells:
-		var cursor := origin + piece.direction
+		var cursor: Vector2i = Vector2i(origin) + Vector2i(piece.direction)
 		while is_inside(cursor):
 			if occupied_by(cursor, piece_id) != "":
 				return false
-			cursor += piece.direction
+			cursor += Vector2i(piece.direction)
 	return true
 
 func legal_moves() -> Array[String]:
 	var result: Array[String] = []
 	for piece_id in pieces:
-		if can_exit(piece_id):
-			result.append(piece_id)
+		var id := String(piece_id)
+		if can_exit(id):
+			result.append(id)
 	result.sort()
 	return result
 
@@ -63,4 +64,7 @@ func copy():
 func state_key() -> String:
 	var ids := pieces.keys()
 	ids.sort()
-	return ",".join(ids)
+	var strings: Array[String] = []
+	for id in ids:
+		strings.append(String(id))
+	return ",".join(strings)
