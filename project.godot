@@ -1,0 +1,23 @@
+; Engine configuration file.
+; FlowArrows — Godot 4 project
+
+config_version=5
+
+[application]
+
+config/name="FlowArrows"
+run/main_scene="res://src/game/main.tscn"
+
+[display]
+
+window/size/viewport_width=1080
+window/size/viewport_height=1920
+window/size/window_width_override=540
+window/size/window_height_override=960
+window/stretch/mode="canvas_items"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.08, 0.08, 0.09, 1)
