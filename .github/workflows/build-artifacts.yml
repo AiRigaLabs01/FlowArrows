@@ -152,7 +152,6 @@ jobs:
           export/android/android_sdk_path = "$ANDROID_HOME"
           export/android/java_sdk_path = "$JAVA_HOME"
           export/android/debug_keystore = "/github/home/.android/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           export/android/force_system_user = false
           EOF
@@ -173,6 +172,25 @@ jobs:
           echo '=== Android-related normalized settings ==='
           grep -nE 'android|java|keystore|sdk|adb' ~/.config/godot/editor_settings-4.4.tres || true
           exit "$status"
+
+      - name: Create direct Android export validator
+        run: |
+          mkdir -p .ci
+          cat > .ci/android_export_validator.gd <<'EOF'
+          @tool
+          extends EditorScript
+
+          func _run() -> void:
+              print("=== DIRECT GODOT EXPORT VALIDATOR ===")
+              var export_singleton = EditorInterface.get_editor_settings()
+              print("android_sdk_path=", export_singleton.get_setting("export/android/android_sdk_path"))
+              print("java_sdk_path=", export_singleton.get_setting("export/android/java_sdk_path"))
+              print("debug_keystore=", export_singleton.get_setting("export/android/debug_keystore"))
+              print("debug_keystore_pass_set=", str(export_singleton.get_setting("export/android/debug_keystore_pass")).length() > 0)
+              print("NOTE: Godot 4.4 does not expose EditorExportPlatform.can_export() to GDScript in all builds; this script verifies normalized editor settings from inside the editor process.")
+              print("=== END DIRECT GODOT EXPORT VALIDATOR ===")
+          EOF
+          godot --headless --editor --path . --script .ci/android_export_validator.gd 2>&1 | tee build/android/godot-direct-validator.log || true
 
       - name: Pre-export diagnostics
         run: |
@@ -220,6 +238,7 @@ jobs:
           name: FlowArrows-Android-Diagnostics
           path: |
             build/android/godot-editor-init.log
+            build/android/godot-direct-validator.log
             build/android/godot-android-export.log
           if-no-files-found: warn
           retention-days: 14
