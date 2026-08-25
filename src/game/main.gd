@@ -5,10 +5,11 @@ const FlowSolver = preload("res://src/core/solver.gd")
 const FlowGenerator = preload("res://src/core/generator.gd")
 const PieceView = preload("res://src/game/piece_view.gd")
 
-const CELL_SIZE := 120.0
+const CELL_SIZE := 105.0
 const BOARD_ORIGIN := Vector2(120, 420)
-const START_PIECES := 5
-const MAX_LIVES := 5
+const START_PIECES := 8
+const START_BOARD_SIZE := Vector2i(8, 8)
+const MAX_LIVES := 3
 
 var board
 var initial_board
@@ -96,8 +97,8 @@ func _start_new_level() -> void:
 	lives = MAX_LIVES
 	failed_piece_ids.clear()
 	hint_label.text = ""
-	var piece_count: int = mini(START_PIECES + int((level_number - 1) / 2), 9)
-	var generated: Dictionary = generator.generate_chain(piece_count, Vector2i(7, 7))
+	var piece_count: int = mini(START_PIECES + int((level_number - 1) / 2), 12)
+	var generated: Dictionary = generator.generate_chain(piece_count, START_BOARD_SIZE)
 	board = generated["board"]
 	initial_board = board.copy()
 	_render_board()
