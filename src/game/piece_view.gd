@@ -14,6 +14,11 @@ var direction := Vector2i.RIGHT
 var cell_size := 120.0
 var enabled := true
 var hinted := false
+var failed_attempt := false
+var impact_offset: float = 0.0:
+	set(value):
+		impact_offset = value
+		queue_redraw()
 var exit_progress: float = 0.0:
 	set(value):
 		exit_progress = value
@@ -24,15 +29,19 @@ func setup(id: String, occupied_cells: Array[Vector2i], exit_direction: Vector2i
 	cells = occupied_cells.duplicate()
 	direction = exit_direction
 	cell_size = size
+	impact_offset = 0.0
 	exit_progress = 0.0
 	queue_redraw()
 
 func set_enabled(value: bool) -> void:
 	enabled = value
-	queue_redraw()
 
 func set_hint(value: bool) -> void:
 	hinted = value
+	queue_redraw()
+
+func set_failed(value: bool) -> void:
+	failed_attempt = value
 	queue_redraw()
 
 func _draw() -> void:
@@ -41,9 +50,16 @@ func _draw() -> void:
 	var points: Array[Vector2] = _local_points()
 	if points.is_empty():
 		return
-	var body_color: Color = Color(0.93, 0.94, 0.97, 1.0) if enabled else Color(0.42, 0.44, 0.49, 1.0)
+	var draw_offset: Vector2 = Vector2(direction) * impact_offset
+	for i in range(points.size()):
+		points[i] += draw_offset
+
+	var body_color := Color(0.93, 0.94, 0.97, 1.0)
 	if hinted:
 		body_color = Color(1.0, 0.82, 0.28, 1.0)
+	if failed_attempt:
+		body_color = Color(0.96, 0.24, 0.24, 1.0)
+
 	if points.size() == 1:
 		draw_circle(points[0], LINE_WIDTH * 0.55, body_color)
 	else:
