@@ -14,12 +14,17 @@ var direction := Vector2i.RIGHT
 var cell_size := 120.0
 var enabled := true
 var hinted := false
+var exit_progress: float = 0.0:
+	set(value):
+		exit_progress = value
+		queue_redraw()
 
 func setup(id: String, occupied_cells: Array[Vector2i], exit_direction: Vector2i, size: float) -> void:
 	piece_id = id
 	cells = occupied_cells.duplicate()
 	direction = exit_direction
 	cell_size = size
+	exit_progress = 0.0
 	queue_redraw()
 
 func set_enabled(value: bool) -> void:
@@ -34,6 +39,8 @@ func _draw() -> void:
 	if cells.is_empty():
 		return
 	var points: Array[Vector2] = _local_points()
+	if points.is_empty():
+		return
 	var body_color: Color = Color(0.93, 0.94, 0.97, 1.0) if enabled else Color(0.42, 0.44, 0.49, 1.0)
 	if hinted:
 		body_color = Color(1.0, 0.82, 0.28, 1.0)
@@ -73,10 +80,27 @@ func _hit_test(point: Vector2) -> bool:
 
 func _local_points() -> Array[Vector2]:
 	var result: Array[Vector2] = []
+	if cells.is_empty():
+		return result
 	var anchor: Vector2i = cells[0]
+	var trajectory: Array[Vector2] = []
 	for cell: Vector2i in cells:
-		result.append((Vector2(cell - anchor) + Vector2(0.5, 0.5)) * cell_size)
+		trajectory.append((Vector2(cell - anchor) + Vector2(0.5, 0.5)) * cell_size)
+	var extension_start: Vector2 = trajectory[-1]
+	for i in range(1, 32):
+		trajectory.append(extension_start + Vector2(direction) * cell_size * float(i))
+	for i in range(cells.size()):
+		result.append(_sample_trajectory(trajectory, float(i) + exit_progress))
 	return result
+
+func _sample_trajectory(trajectory: Array[Vector2], index_position: float) -> Vector2:
+	var base_index: int = int(floor(index_position))
+	var fraction: float = index_position - float(base_index)
+	if base_index >= trajectory.size() - 1:
+		return trajectory[-1] + Vector2(direction) * cell_size * (index_position - float(trajectory.size() - 1))
+	var start: Vector2 = trajectory[maxi(base_index, 0)]
+	var finish: Vector2 = trajectory[mini(base_index + 1, trajectory.size() - 1)]
+	return start.lerp(finish, fraction)
 
 func _distance_to_segment(point: Vector2, start: Vector2, finish: Vector2) -> float:
 	var segment: Vector2 = finish - start
