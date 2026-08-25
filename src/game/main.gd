@@ -7,7 +7,6 @@ const PieceView = preload("res://src/game/piece_view.gd")
 
 const CELL_SIZE := 120.0
 const BOARD_ORIGIN := Vector2(120, 420)
-const EXIT_DISTANCE := 1100.0
 const START_PIECES := 5
 
 var board
@@ -126,13 +125,15 @@ func _render_board() -> void:
 func _on_piece_pressed(piece_id: String, view) -> void:
 	if input_locked or not board.can_exit(piece_id):
 		return
+	var steps: int = board.exit_steps(piece_id)
+	if steps <= 0:
+		return
 	input_locked = true
 	_set_piece_input_enabled(false)
-	var piece = board.pieces[piece_id]
-	var target: Vector2 = view.position + Vector2(piece.direction) * EXIT_DISTANCE
+	var duration: float = maxf(0.28, float(steps) * 0.085)
 	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.tween_property(view, "position", target, 0.32)
+	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.tween_property(view, "exit_progress", float(steps), duration)
 	tween.tween_callback(_finish_remove.bind(piece_id, view))
 
 func _finish_remove(piece_id: String, view) -> void:
