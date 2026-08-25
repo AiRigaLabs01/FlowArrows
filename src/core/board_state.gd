@@ -25,24 +25,38 @@ func occupied_by(cell: Vector2i, ignored_piece_id: String = "") -> String:
 			return String(piece_id)
 	return ""
 
-func can_exit(piece_id: String) -> bool:
+func exit_steps(piece_id: String) -> int:
 	if not pieces.has(piece_id):
-		return false
+		return -1
 	var piece = pieces[piece_id]
-	var offset := Vector2i.ZERO
-	while true:
-		offset += Vector2i(piece.direction)
-		var any_inside := false
-		for origin in piece.cells:
-			var translated: Vector2i = Vector2i(origin) + offset
-			if not is_inside(translated):
+	if piece.cells.is_empty():
+		return -1
+	var positions: Array[Vector2i] = piece.cells.duplicate()
+	var max_steps: int = width + height + positions.size() + 4
+	for step in range(1, max_steps + 1):
+		var previous: Array[Vector2i] = positions.duplicate()
+		for i in range(positions.size() - 1):
+			positions[i] = previous[i + 1]
+		positions[-1] = previous[-1] + Vector2i(piece.direction)
+
+		var inside_count := 0
+		var own_cells: Dictionary = {}
+		for cell: Vector2i in positions:
+			if not is_inside(cell):
 				continue
-			any_inside = true
-			if occupied_by(translated, piece_id) != "":
-				return false
-		if not any_inside:
-			return true
-	return true
+			inside_count += 1
+			var key := "%d:%d" % [cell.x, cell.y]
+			if own_cells.has(key):
+				return -1
+			own_cells[key] = true
+			if occupied_by(cell, piece_id) != "":
+				return -1
+		if inside_count == 0:
+			return step
+	return -1
+
+func can_exit(piece_id: String) -> bool:
+	return exit_steps(piece_id) > 0
 
 func legal_moves() -> Array[String]:
 	var result: Array[String] = []
