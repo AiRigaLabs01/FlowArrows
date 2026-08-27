@@ -7,6 +7,10 @@ on:
       - 'feat/**'
   pull_request:
 
+concurrency:
+  group: build-artifacts-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
