@@ -26,11 +26,21 @@ func occupied_by(cell: Vector2i, ignored_piece_id: String = "") -> String:
 	return ""
 
 func exit_steps(piece_id: String) -> int:
+	var analysis: Dictionary = _travel_analysis(piece_id)
+	return int(analysis["exit_steps"]) if bool(analysis["can_exit"]) else -1
+
+func blocked_progress(piece_id: String) -> float:
+	var analysis: Dictionary = _travel_analysis(piece_id)
+	if bool(analysis["can_exit"]):
+		return 0.0
+	return float(analysis["blocked_progress"])
+
+func _travel_analysis(piece_id: String) -> Dictionary:
 	if not pieces.has(piece_id):
-		return -1
+		return {"can_exit": false, "exit_steps": -1, "blocked_progress": 0.0}
 	var piece = pieces[piece_id]
 	if piece.cells.is_empty():
-		return -1
+		return {"can_exit": false, "exit_steps": -1, "blocked_progress": 0.0}
 	var positions: Array[Vector2i] = piece.cells.duplicate()
 	var max_steps: int = width + height + positions.size() + 4
 	for step in range(1, max_steps + 1):
@@ -47,13 +57,15 @@ func exit_steps(piece_id: String) -> int:
 			inside_count += 1
 			var key := "%d:%d" % [cell.x, cell.y]
 			if own_cells.has(key):
-				return -1
+				return {"can_exit": false, "exit_steps": -1, "blocked_progress": maxf(0.35, float(step) - 0.22)}
 			own_cells[key] = true
 			if occupied_by(cell, piece_id) != "":
-				return -1
+				# Stop just before the discrete collision cell so the visual thread
+				# reaches the obstacle and then reverses without drawing through it.
+				return {"can_exit": false, "exit_steps": -1, "blocked_progress": maxf(0.35, float(step) - 0.22)}
 		if inside_count == 0:
-			return step
-	return -1
+			return {"can_exit": true, "exit_steps": step, "blocked_progress": 0.0}
+	return {"can_exit": false, "exit_steps": -1, "blocked_progress": 0.35}
 
 func can_exit(piece_id: String) -> bool:
 	return exit_steps(piece_id) > 0
