@@ -22,5 +22,8 @@ jobs:
       - name: Solver smoke tests
         run: godot --headless --path . --script tests/core_solver_smoke.gd
 
+      - name: Dependency solver equivalence
+        run: godot --headless --path . --script tests/dependency_solver_equivalence.gd
+
       - name: Generator and validator smoke tests
         run: godot --headless --path . --script tests/generator_smoke.gd
