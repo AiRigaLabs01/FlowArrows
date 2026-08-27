@@ -3,10 +3,10 @@ extends Node2D
 
 signal pressed(piece_id: String, view: PieceView)
 
-const BASE_LINE_WIDTH := 12.0
+const BASE_LINE_WIDTH := 8.5
 const BASE_HIT_RADIUS := 36.0
-const BASE_HEAD_LENGTH := 19.0
-const BASE_HEAD_WIDTH := 11.0
+const BASE_HEAD_LENGTH := 18.0
+const BASE_HEAD_WIDTH := 10.5
 const TRAIL_SPACING_FACTOR := 0.28
 const TRAIL_RADIUS_FACTOR := 0.040
 const TRAIL_LENGTH_CELLS := 3.2
@@ -18,6 +18,7 @@ var cell_size := 120.0
 var enabled := true
 var hinted := false
 var failed_attempt := false
+var moving := false
 var impact_offset: float = 0.0:
 	set(value):
 		impact_offset = value
@@ -34,6 +35,7 @@ func setup(id: String, occupied_cells: Array[Vector2i], exit_direction: Vector2i
 	cell_size = size
 	impact_offset = 0.0
 	exit_progress = 0.0
+	moving = false
 	queue_redraw()
 
 func set_enabled(value: bool) -> void:
@@ -45,6 +47,10 @@ func set_hint(value: bool) -> void:
 
 func set_failed(value: bool) -> void:
 	failed_attempt = value
+	queue_redraw()
+
+func set_moving(value: bool) -> void:
+	moving = value
 	queue_redraw()
 
 func _draw() -> void:
@@ -68,13 +74,15 @@ func _draw() -> void:
 	var body_color := Color(0.93, 0.94, 0.97, 1.0)
 	if hinted:
 		body_color = Color(1.0, 0.82, 0.28, 1.0)
-	if failed_attempt:
+	if failed_attempt or moving:
 		body_color = Color(0.96, 0.24, 0.24, 1.0)
 
 	if points.size() == 1:
 		draw_circle(points[0], line_width * 0.50, body_color)
 	else:
 		draw_polyline(PackedVector2Array(points), body_color, line_width, true)
+
+	# Keep the head visually distinct from the thinner thread body.
 	var tip: Vector2 = points[-1] + Vector2(direction) * cell_size * 0.24
 	var back: Vector2 = tip - Vector2(direction) * head_length
 	var normal: Vector2 = Vector2(-direction.y, direction.x)
