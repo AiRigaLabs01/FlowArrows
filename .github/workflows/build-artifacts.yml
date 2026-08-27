@@ -5,10 +5,9 @@ on:
     branches:
       - main
       - 'feat/**'
-  pull_request:
 
 concurrency:
-  group: build-artifacts-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: build-artifacts-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
