@@ -4,6 +4,7 @@ const BoardState = preload("res://src/core/board_state.gd")
 const FlowSolver = preload("res://src/core/solver.gd")
 const FlowGenerator = preload("res://src/core/generator.gd")
 const PieceView = preload("res://src/game/piece_view.gd")
+const BoardGrid = preload("res://src/game/board_grid.gd")
 
 const MAX_CELL_SIZE := 72.0
 const MIN_CELL_SIZE := 38.0
@@ -17,6 +18,7 @@ var board
 var initial_board
 var piece_nodes: Dictionary = {}
 var failed_piece_ids: Dictionary = {}
+var board_grid
 var status_label: Label
 var level_label: Label
 var moves_label: Label
@@ -154,6 +156,13 @@ func _render_board() -> void:
 		if is_instance_valid(node):
 			node.queue_free()
 	piece_nodes.clear()
+	if is_instance_valid(board_grid):
+		board_grid.queue_free()
+	board_grid = BoardGrid.new()
+	board_grid.position = current_board_origin
+	board_grid.setup(board.width, board.height, current_cell_size)
+	add_child(board_grid)
+	move_child(board_grid, 0)
 
 	for piece_id in board.pieces:
 		var piece = board.pieces[piece_id]
