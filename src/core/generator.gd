@@ -15,23 +15,24 @@ func _init(seed_value: int = 0) -> void:
 	else:
 		rng.seed = seed_value
 
-func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8)) -> Dictionary:
+func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), complexity: int = 1) -> Dictionary:
 	assert(piece_count > 0)
 	assert(board_size.x >= 3 and board_size.y >= 3)
+	complexity = maxi(complexity, 1)
 
-	for _attempt in range(40):
-		var generated := _try_generate_multicell(piece_count, board_size)
+	for _attempt in range(60):
+		var generated := _try_generate_multicell(piece_count, board_size, complexity)
 		if not generated.is_empty():
 			return generated
 	return _generate_simple(piece_count, board_size)
 
-func _try_generate_multicell(piece_count: int, board_size: Vector2i) -> Dictionary:
+func _try_generate_multicell(piece_count: int, board_size: Vector2i, complexity: int) -> Dictionary:
 	var pieces: Array = []
 	var occupied: Dictionary = {}
 
 	for i in range(piece_count):
 		var id: String = String.chr(65 + (i % 26)) + ("" if i < 26 else str(i / 26))
-		var cells: Array[Vector2i] = _build_path(board_size, occupied)
+		var cells: Array[Vector2i] = _build_path(board_size, occupied, complexity)
 		if cells.is_empty():
 			return {}
 		for cell: Vector2i in cells:
@@ -50,23 +51,42 @@ func _try_generate_multicell(piece_count: int, board_size: Vector2i) -> Dictiona
 		"difficulty": DifficultyScript.new().estimate(board, solution),
 	}
 
-func _build_path(board_size: Vector2i, occupied: Dictionary) -> Array[Vector2i]:
-	var target_length: int = rng.randi_range(2, 4)
-	for _attempt in range(24):
+func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) -> Array[Vector2i]:
+	var min_length: int = mini(2 + int((complexity - 1) / 4), 4)
+	var max_length: int = mini(4 + int((complexity - 1) / 2), 7)
+	var target_length: int = rng.randi_range(min_length, max_length)
+	var desired_turns: int = mini(int((complexity - 1) / 2), 3)
+
+	for _attempt in range(36):
 		var start := Vector2i(rng.randi_range(0, board_size.x - 1), rng.randi_range(0, board_size.y - 1))
 		if occupied.has(_cell_key(start)):
 			continue
 		var path: Array[Vector2i] = [start]
+		var previous_direction := Vector2i.ZERO
+		var turns := 0
 		while path.size() < target_length:
 			var candidates: Array[Vector2i] = []
+			var turning_candidates: Array[Vector2i] = []
 			for direction: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
 				var next: Vector2i = path[-1] + direction
-				if _inside(next, board_size) and not occupied.has(_cell_key(next)) and next not in path:
-					candidates.append(next)
+				if not _inside(next, board_size) or occupied.has(_cell_key(next)) or next in path:
+					continue
+				candidates.append(next)
+				if previous_direction != Vector2i.ZERO and direction != previous_direction and direction != -previous_direction:
+					turning_candidates.append(next)
 			if candidates.is_empty():
 				break
-			path.append(candidates[rng.randi_range(0, candidates.size() - 1)])
-		if path.size() >= 2:
+			var next_cell: Vector2i
+			if turns < desired_turns and not turning_candidates.is_empty():
+				next_cell = turning_candidates[rng.randi_range(0, turning_candidates.size() - 1)]
+			else:
+				next_cell = candidates[rng.randi_range(0, candidates.size() - 1)]
+			var direction: Vector2i = next_cell - path[-1]
+			if previous_direction != Vector2i.ZERO and direction != previous_direction:
+				turns += 1
+			previous_direction = direction
+			path.append(next_cell)
+		if path.size() >= min_length and (desired_turns == 0 or turns >= mini(desired_turns, path.size() - 2)):
 			return path
 	return []
 
