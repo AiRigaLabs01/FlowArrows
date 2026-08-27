@@ -26,7 +26,8 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 		var generated := _try_generate_multicell(piece_count, board_size, complexity)
 		if not generated.is_empty():
 			return generated
-	return _generate_simple(piece_count, board_size)
+	# Never degrade to one-cell dots: use a guaranteed-solvable visible fallback.
+	return _generate_safe_multicell_fallback(piece_count, board_size)
 
 func _try_generate_multicell(piece_count: int, board_size: Vector2i, complexity: int) -> Dictionary:
 	var pieces: Array = []
@@ -113,13 +114,39 @@ func _exit_direction(cells: Array[Vector2i], board_size: Vector2i) -> Vector2i:
 			best = direction
 	return best
 
-func _generate_simple(piece_count: int, board_size: Vector2i) -> Dictionary:
+func _generate_safe_multicell_fallback(piece_count: int, board_size: Vector2i) -> Dictionary:
 	var pieces: Array = []
+	var slots: Array = []
+
+	# Straight two-cell threads whose heads sit on the border and point outward.
+	# They are all immediately removable, so the fallback is mathematically solvable
+	# while still looking like actual threads instead of isolated arrowhead dots.
+	for x in range(2, board_size.x - 2):
+		slots.append([[Vector2i(x, 1), Vector2i(x, 0)], Vector2i.UP])
+		slots.append([[Vector2i(x, board_size.y - 2), Vector2i(x, board_size.y - 1)], Vector2i.DOWN])
+	for y in range(2, board_size.y - 2):
+		slots.append([[Vector2i(1, y), Vector2i(0, y)], Vector2i.LEFT])
+		slots.append([[Vector2i(board_size.x - 2, y), Vector2i(board_size.x - 1, y)], Vector2i.RIGHT])
+
+	if slots.size() < piece_count:
+		# This should not happen for our production board sizes, but keep a safe bound.
+		piece_count = slots.size()
+
+	# Shuffle so fallback threads are distributed around all four sides.
+	for i in range(slots.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var tmp = slots[i]
+		slots[i] = slots[j]
+		slots[j] = tmp
+
 	for i in range(piece_count):
-		var id: String = "P%d" % i
-		var cell: Vector2i = Vector2i(i % board_size.x, i % board_size.y)
-		var direction: Vector2i = Vector2i.RIGHT if cell.x < board_size.x - 1 else Vector2i.LEFT
-		pieces.append(PieceScript.new(id, [cell], direction))
+		var id := "F%d" % i
+		var cells: Array[Vector2i] = []
+		for cell in slots[i][0]:
+			cells.append(cell)
+		var direction: Vector2i = slots[i][1]
+		pieces.append(PieceScript.new(id, cells, direction))
+
 	var board = BoardScript.new(board_size.x, board_size.y, pieces)
 	var solution: Array[String] = DependencySolverScript.new().solve(board)
 	return {
