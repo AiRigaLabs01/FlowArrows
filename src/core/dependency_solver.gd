@@ -4,9 +4,13 @@ extends RefCounted
 # Exact solver for the current monotonic rules: pieces only disappear and never move
 # until they exit. For every piece, compute the fixed set of pieces intersecting
 # its complete exit sweep. Solvability then reduces to topological elimination.
+# A piece can also be intrinsically impossible to slide because its own bent path
+# folds onto itself while advancing; this must be rejected independently of blockers.
 
 func solve(initial_state) -> Array[String]:
 	var graph: Dictionary = build_graph(initial_state)
+	if graph["intrinsic_invalid"]:
+		return []
 	var blockers: Dictionary = graph["blockers"]
 	var dependents: Dictionary = graph["dependents"]
 	var remaining: Dictionary = {}
@@ -48,6 +52,7 @@ func build_graph(state) -> Dictionary:
 	var blockers: Dictionary = {}
 	var dependents: Dictionary = {}
 	var occupancy: Dictionary = {}
+	var intrinsic_invalid := false
 
 	for piece_id in state.pieces:
 		var id := String(piece_id)
@@ -57,6 +62,13 @@ func build_graph(state) -> Dictionary:
 		for cell: Vector2i in piece.cells:
 			if state.is_inside(cell):
 				occupancy[_cell_key(cell)] = id
+
+		# BoardState also rejects a thread when its sliding geometry overlaps itself.
+		# Check exactly that geometry with all other pieces removed. If it cannot exit
+		# on an otherwise empty board, no removal order can ever make the level solvable.
+		var single_piece_board = state.get_script().new(state.width, state.height, [piece.copy()])
+		if not single_piece_board.can_exit(id):
+			intrinsic_invalid = true
 
 	for piece_id in state.pieces:
 		var id := String(piece_id)
@@ -78,6 +90,7 @@ func build_graph(state) -> Dictionary:
 	return {
 		"blockers": blockers,
 		"dependents": dependents,
+		"intrinsic_invalid": intrinsic_invalid,
 	}
 
 func _exit_sweep_cells(state, piece) -> Array[Vector2i]:
