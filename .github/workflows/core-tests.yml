@@ -7,6 +7,10 @@ on:
       - 'feat/**'
   pull_request:
 
+concurrency:
+  group: core-tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   core-tests:
     runs-on: ubuntu-latest
