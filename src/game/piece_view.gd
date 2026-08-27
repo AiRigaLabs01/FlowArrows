@@ -3,10 +3,12 @@ extends Node2D
 
 signal pressed(piece_id: String, view: PieceView)
 
-const LINE_WIDTH := 24.0
-const HIT_RADIUS := 44.0
-const HEAD_LENGTH := 34.0
-const HEAD_WIDTH := 28.0
+const BASE_LINE_WIDTH := 24.0
+const BASE_HIT_RADIUS := 44.0
+const BASE_HEAD_LENGTH := 34.0
+const BASE_HEAD_WIDTH := 28.0
+const TRAIL_SPACING_FACTOR := 0.24
+const TRAIL_RADIUS_FACTOR := 0.045
 
 var piece_id := ""
 var cells: Array[Vector2i] = []
@@ -47,6 +49,14 @@ func set_failed(value: bool) -> void:
 func _draw() -> void:
 	if cells.is_empty():
 		return
+	var scale_factor: float = clampf(cell_size / 105.0, 0.62, 1.15)
+	var line_width: float = BASE_LINE_WIDTH * scale_factor
+	var head_length: float = BASE_HEAD_LENGTH * scale_factor
+	var head_width: float = BASE_HEAD_WIDTH * scale_factor
+
+	if exit_progress > 0.01:
+		_draw_exit_trail(scale_factor)
+
 	var points: Array[Vector2] = _local_points()
 	if points.is_empty():
 		return
@@ -61,14 +71,33 @@ func _draw() -> void:
 		body_color = Color(0.96, 0.24, 0.24, 1.0)
 
 	if points.size() == 1:
-		draw_circle(points[0], LINE_WIDTH * 0.55, body_color)
+		draw_circle(points[0], line_width * 0.55, body_color)
 	else:
-		draw_polyline(PackedVector2Array(points), body_color, LINE_WIDTH, true)
+		draw_polyline(PackedVector2Array(points), body_color, line_width, true)
 	var tip: Vector2 = points[-1] + Vector2(direction) * cell_size * 0.30
-	var back: Vector2 = tip - Vector2(direction) * HEAD_LENGTH
+	var back: Vector2 = tip - Vector2(direction) * head_length
 	var normal: Vector2 = Vector2(-direction.y, direction.x)
-	var triangle := PackedVector2Array([tip, back + normal * HEAD_WIDTH, back - normal * HEAD_WIDTH])
+	var triangle := PackedVector2Array([tip, back + normal * head_width, back - normal * head_width])
 	draw_colored_polygon(triangle, body_color)
+
+func _draw_exit_trail(scale_factor: float) -> void:
+	var trajectory: Array[Vector2] = _original_trajectory()
+	if trajectory.size() < 2:
+		return
+	var vacated_length: float = minf(exit_progress * cell_size, _polyline_length(trajectory))
+	if vacated_length <= 0.0:
+		return
+	var spacing: float = maxf(10.0, cell_size * TRAIL_SPACING_FACTOR)
+	var radius: float = maxf(2.5, cell_size * TRAIL_RADIUS_FACTOR * scale_factor)
+	var trail_color := Color(0.48, 0.83, 0.78, 0.62)
+	var distance: float = 0.0
+	while distance <= vacated_length:
+		var point: Vector2 = _point_at_distance(trajectory, distance)
+		var fade: float = 0.35 + 0.65 * (distance / maxf(vacated_length, 1.0))
+		var color := trail_color
+		color.a *= fade
+		draw_circle(point, radius, color)
+		distance += spacing
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not enabled:
@@ -85,12 +114,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		pressed.emit(piece_id, self)
 
 func _hit_test(point: Vector2) -> bool:
+	var hit_radius: float = BASE_HIT_RADIUS * clampf(cell_size / 105.0, 0.70, 1.15)
 	var points: Array[Vector2] = _local_points()
 	for p: Vector2 in points:
-		if point.distance_to(p) <= HIT_RADIUS:
+		if point.distance_to(p) <= hit_radius:
 			return true
 	for i in range(points.size() - 1):
-		if _distance_to_segment(point, points[i], points[i + 1]) <= HIT_RADIUS:
+		if _distance_to_segment(point, points[i], points[i + 1]) <= hit_radius:
 			return true
 	return false
 
@@ -98,16 +128,46 @@ func _local_points() -> Array[Vector2]:
 	var result: Array[Vector2] = []
 	if cells.is_empty():
 		return result
-	var anchor: Vector2i = cells[0]
-	var trajectory: Array[Vector2] = []
-	for cell: Vector2i in cells:
-		trajectory.append((Vector2(cell - anchor) + Vector2(0.5, 0.5)) * cell_size)
-	var extension_start: Vector2 = trajectory[-1]
-	for i in range(1, 32):
-		trajectory.append(extension_start + Vector2(direction) * cell_size * float(i))
+	var trajectory: Array[Vector2] = _extended_trajectory()
 	for i in range(cells.size()):
 		result.append(_sample_trajectory(trajectory, float(i) + exit_progress))
 	return result
+
+func _original_trajectory() -> Array[Vector2]:
+	var trajectory: Array[Vector2] = []
+	if cells.is_empty():
+		return trajectory
+	var anchor: Vector2i = cells[0]
+	for cell: Vector2i in cells:
+		trajectory.append((Vector2(cell - anchor) + Vector2(0.5, 0.5)) * cell_size)
+	return trajectory
+
+func _extended_trajectory() -> Array[Vector2]:
+	var trajectory: Array[Vector2] = _original_trajectory()
+	if trajectory.is_empty():
+		return trajectory
+	var extension_start: Vector2 = trajectory[-1]
+	for i in range(1, 32):
+		trajectory.append(extension_start + Vector2(direction) * cell_size * float(i))
+	return trajectory
+
+func _polyline_length(points: Array[Vector2]) -> float:
+	var total := 0.0
+	for i in range(points.size() - 1):
+		total += points[i].distance_to(points[i + 1])
+	return total
+
+func _point_at_distance(points: Array[Vector2], distance: float) -> Vector2:
+	if points.is_empty():
+		return Vector2.ZERO
+	var remaining := maxf(distance, 0.0)
+	for i in range(points.size() - 1):
+		var segment_length: float = points[i].distance_to(points[i + 1])
+		if remaining <= segment_length:
+			var t: float = remaining / maxf(segment_length, 0.001)
+			return points[i].lerp(points[i + 1], t)
+		remaining -= segment_length
+	return points[-1]
 
 func _sample_trajectory(trajectory: Array[Vector2], index_position: float) -> Vector2:
 	var base_index: int = int(floor(index_position))
