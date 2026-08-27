@@ -7,6 +7,9 @@ const SolverScript = preload("res://src/core/solver.gd")
 const ValidatorScript = preload("res://src/core/validator.gd")
 const DifficultyScript = preload("res://src/core/difficulty.gd")
 
+const LARGE_BOARD_PIECE_THRESHOLD := 24
+const MAX_GENERATION_ATTEMPTS := 24
+
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _init(seed_value: int = 0) -> void:
@@ -20,7 +23,7 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 	assert(board_size.x >= 3 and board_size.y >= 3)
 	complexity = maxi(complexity, 1)
 
-	for _attempt in range(60):
+	for _attempt in range(MAX_GENERATION_ATTEMPTS):
 		var generated := _try_generate_multicell(piece_count, board_size, complexity)
 		if not generated.is_empty():
 			return generated
@@ -41,15 +44,43 @@ func _try_generate_multicell(piece_count: int, board_size: Vector2i, complexity:
 		pieces.append(PieceScript.new(id, cells, direction))
 
 	var board = BoardScript.new(board_size.x, board_size.y, pieces)
-	var validation: Dictionary = ValidatorScript.new().validate(board)
-	if not validation["valid"]:
-		return {}
-	var solution: Array[String] = validation["solution"]
+	var solution: Array[String] = []
+
+	# The full recursive solver is fine for small boards, but its search space grows
+	# exponentially with 40+ pieces and can freeze the main thread during startup.
+	# Large levels use a bounded greedy peeling pass instead. A level is accepted
+	# only if that pass removes every piece, so accepted boards are still guaranteed
+	# to have a known valid solution without an expensive exhaustive search.
+	if piece_count >= LARGE_BOARD_PIECE_THRESHOLD:
+		solution = _fast_peel_solution(board)
+		if solution.size() != piece_count:
+			return {}
+	else:
+		var validation: Dictionary = ValidatorScript.new().validate(board)
+		if not validation["valid"]:
+			return {}
+		solution = validation["solution"]
+
 	return {
 		"board": board,
 		"known_solution": solution,
 		"difficulty": DifficultyScript.new().estimate(board, solution),
 	}
+
+func _fast_peel_solution(initial_board) -> Array[String]:
+	var state = initial_board.copy()
+	var result: Array[String] = []
+	while not state.is_solved():
+		var legal: Array[String] = state.legal_moves()
+		if legal.is_empty():
+			return []
+		# Prefer a deterministic move. This keeps generation cheap and reproducible
+		# for seeded tests while still proving one complete removal sequence.
+		var piece_id: String = legal[0]
+		if not state.remove_piece(piece_id):
+			return []
+		result.append(piece_id)
+	return result
 
 func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) -> Array[Vector2i]:
 	var min_length: int = mini(2 + int((complexity - 1) / 4), 4)
@@ -119,7 +150,7 @@ func _generate_simple(piece_count: int, board_size: Vector2i) -> Dictionary:
 		var direction: Vector2i = Vector2i.RIGHT if cell.x < board_size.x - 1 else Vector2i.LEFT
 		pieces.append(PieceScript.new(id, [cell], direction))
 	var board = BoardScript.new(board_size.x, board_size.y, pieces)
-	var solution: Array[String] = SolverScript.new().solve(board)
+	var solution: Array[String] = _fast_peel_solution(board)
 	return {
 		"board": board,
 		"known_solution": solution,
