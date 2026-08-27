@@ -208,6 +208,8 @@ func _start_exit_animation(piece_id: String, view) -> void:
 	failed_piece_ids.erase(piece_id)
 	piece_nodes.erase(piece_id)
 	active_exit_nodes[piece_id] = view
+	view.set_failed(false)
+	view.set_moving(true)
 	view.set_enabled(false)
 	hint_label.text = ""
 	_update_status()
@@ -227,23 +229,30 @@ func _finish_exit_animation(piece_id: String, view) -> void:
 	_update_status()
 
 func _start_failed_animation(piece_id: String, view) -> void:
+	if not board.pieces.has(piece_id):
+		return
 	var first_failure := not failed_piece_ids.has(piece_id)
 	if first_failure:
 		failed_piece_ids[piece_id] = true
 		lives -= 1
-		view.set_failed(true)
+	view.set_failed(true)
+	view.set_moving(true)
+	view.set_enabled(false)
 	_update_status()
 
-	view.set_enabled(false)
+	var impact_progress: float = board.blocked_progress(piece_id)
+	var outbound_duration: float = clampf(0.10 + impact_progress * 0.045, 0.12, 0.42)
+	var return_duration: float = clampf(0.14 + impact_progress * 0.035, 0.16, 0.38)
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_QUAD)
-	tween.tween_property(view, "impact_offset", current_cell_size * 0.18, 0.10).set_ease(Tween.EASE_OUT)
-	tween.tween_property(view, "impact_offset", 0.0, 0.16).set_ease(Tween.EASE_IN)
+	tween.tween_property(view, "exit_progress", impact_progress, outbound_duration).set_ease(Tween.EASE_OUT)
+	tween.tween_property(view, "exit_progress", 0.0, return_duration).set_ease(Tween.EASE_IN)
 	tween.tween_callback(_finish_failed_animation.bind(piece_id, view))
 
 func _finish_failed_animation(piece_id: String, view) -> void:
 	if is_instance_valid(view):
-		view.impact_offset = 0.0
+		view.exit_progress = 0.0
+		view.set_moving(false)
 	if lives <= 0:
 		game_over = true
 		_set_piece_input_enabled(false)
