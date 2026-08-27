@@ -56,10 +56,12 @@ func set_moving(value: bool) -> void:
 func _draw() -> void:
 	if cells.is_empty():
 		return
-	var scale_factor: float = clampf(cell_size / 72.0, 0.52, 1.10)
-	var line_width: float = BASE_LINE_WIDTH * scale_factor
-	var head_length: float = BASE_HEAD_LENGTH * scale_factor
-	var head_width: float = BASE_HEAD_WIDTH * scale_factor
+	# Dense boards use tiny cells; keep a visual floor so a thread does not collapse
+	# into a grid dot while preserving a thinner body than earlier builds.
+	var scale_factor: float = clampf(cell_size / 54.0, 0.78, 1.12)
+	var line_width: float = maxf(6.2, BASE_LINE_WIDTH * scale_factor)
+	var head_length: float = maxf(13.0, BASE_HEAD_LENGTH * scale_factor)
+	var head_width: float = maxf(7.5, BASE_HEAD_WIDTH * scale_factor)
 
 	if exit_progress > 0.01:
 		_draw_exit_trail(scale_factor)
@@ -82,8 +84,7 @@ func _draw() -> void:
 	else:
 		draw_polyline(PackedVector2Array(points), body_color, line_width, true)
 
-	# Keep the head visually distinct from the thinner thread body.
-	var tip: Vector2 = points[-1] + Vector2(direction) * cell_size * 0.24
+	var tip: Vector2 = points[-1] + Vector2(direction) * maxf(cell_size * 0.24, 7.0)
 	var back: Vector2 = tip - Vector2(direction) * head_length
 	var normal: Vector2 = Vector2(-direction.y, direction.x)
 	var triangle := PackedVector2Array([tip, back + normal * head_width, back - normal * head_width])
@@ -123,7 +124,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		pressed.emit(piece_id, self)
 
 func _hit_test(point: Vector2) -> bool:
-	var hit_radius: float = BASE_HIT_RADIUS * clampf(cell_size / 72.0, 0.72, 1.10)
+	var hit_radius: float = BASE_HIT_RADIUS * clampf(cell_size / 54.0, 0.72, 1.10)
 	var points: Array[Vector2] = _local_points()
 	for p: Vector2 in points:
 		if point.distance_to(p) <= hit_radius:
