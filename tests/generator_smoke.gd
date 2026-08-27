@@ -19,6 +19,12 @@ func _test_valid_chain() -> void:
 	assert(validation.valid)
 	assert(not validation.solution.is_empty())
 	assert(generated.difficulty.solution_length == validation.solution.size())
+	assert(generated.difficulty.score >= 0)
+	assert(generated.difficulty.dependency_depth >= 1)
+	assert(generated.difficulty.initial_legal_moves >= 1)
+	assert(generated.difficulty.max_legal_moves >= generated.difficulty.min_legal_moves)
+	assert(generated.difficulty.forced_ratio >= 0.0 and generated.difficulty.forced_ratio <= 1.0)
+	assert(generated.difficulty.board_density > 0.0 and generated.difficulty.board_density <= 1.0)
 	var multicell_count := 0
 	for piece_id in board.pieces:
 		var piece = board.pieces[piece_id]
