@@ -7,7 +7,8 @@ const DependencySolverScript = preload("res://src/core/dependency_solver.gd")
 const ValidatorScript = preload("res://src/core/validator.gd")
 const DifficultyScript = preload("res://src/core/difficulty.gd")
 
-const MAX_GENERATION_ATTEMPTS := 24
+const MAX_GENERATION_ATTEMPTS := 16
+const CANDIDATES_PER_PIECE := 96
 
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -22,45 +23,68 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 	assert(board_size.x >= 3 and board_size.y >= 3)
 	complexity = maxi(complexity, 1)
 
+	# Construct the puzzle backwards. Every newly inserted piece must be removable
+	# from the board that already exists. Therefore reversing insertion order is a
+	# constructive proof of solvability, not a probabilistic post-check.
 	for _attempt in range(MAX_GENERATION_ATTEMPTS):
-		var generated := _try_generate_multicell(piece_count, board_size, complexity)
+		var generated := _generate_reverse_solvable(piece_count, board_size, complexity)
 		if not generated.is_empty():
 			return generated
-	# Never degrade to one-cell dots: use a guaranteed-solvable visible fallback.
 	return _generate_safe_multicell_fallback(piece_count, board_size)
 
-func _try_generate_multicell(piece_count: int, board_size: Vector2i, complexity: int) -> Dictionary:
+func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexity: int) -> Dictionary:
 	var pieces: Array = []
 	var occupied: Dictionary = {}
+	var insertion_order: Array[String] = []
 
 	for i in range(piece_count):
-		var id: String = String.chr(65 + (i % 26)) + ("" if i < 26 else str(i / 26))
-		var cells: Array[Vector2i] = _build_path(board_size, occupied, complexity)
-		if cells.is_empty():
+		var accepted = null
+		for _candidate in range(CANDIDATES_PER_PIECE):
+			var cells: Array[Vector2i] = _build_path(board_size, occupied, complexity)
+			if cells.is_empty():
+				continue
+			var direction: Vector2i = _exit_direction(cells, board_size)
+			var id := _piece_id(i)
+			var candidate = PieceScript.new(id, cells, direction)
+			var trial_pieces: Array = pieces.duplicate()
+			trial_pieces.append(candidate)
+			var trial_board = BoardScript.new(board_size.x, board_size.y, trial_pieces)
+			if not trial_board.can_exit(id):
+				continue
+			accepted = candidate
+			break
+
+		if accepted == null:
 			return {}
-		for cell: Vector2i in cells:
+		pieces.append(accepted)
+		insertion_order.append(accepted.id)
+		for cell: Vector2i in accepted.cells:
 			occupied[_cell_key(cell)] = true
-		var direction: Vector2i = _exit_direction(cells, board_size)
-		pieces.append(PieceScript.new(id, cells, direction))
 
 	var board = BoardScript.new(board_size.x, board_size.y, pieces)
-	var validation: Dictionary = ValidatorScript.new().validate(board)
-	if not validation["valid"]:
+	var known_solution: Array[String] = []
+	for i in range(insertion_order.size() - 1, -1, -1):
+		known_solution.append(insertion_order[i])
+
+	# Keep the mathematical solver as an independent safety oracle. The reverse
+	# construction already proves solvability; disagreement indicates a bug.
+	var graph_solution: Array[String] = DependencySolverScript.new().solve(board)
+	if graph_solution.size() != piece_count:
 		return {}
-	var solution: Array[String] = validation["solution"]
+
 	return {
 		"board": board,
-		"known_solution": solution,
-		"difficulty": DifficultyScript.new().estimate(board, solution),
+		"known_solution": known_solution,
+		"difficulty": DifficultyScript.new().estimate(board, graph_solution),
 	}
 
 func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) -> Array[Vector2i]:
 	var min_length: int = mini(2 + int((complexity - 1) / 4), 4)
-	var max_length: int = mini(4 + int((complexity - 1) / 2), 7)
+	var max_length: int = mini(4 + int((complexity - 1) / 2), 8)
 	var target_length: int = rng.randi_range(min_length, max_length)
-	var desired_turns: int = mini(int((complexity - 1) / 2), 3)
+	var desired_turns: int = mini(int((complexity - 1) / 2), 4)
 
-	for _attempt in range(36):
+	for _attempt in range(48):
 		var start := Vector2i(rng.randi_range(0, board_size.x - 1), rng.randi_range(0, board_size.y - 1))
 		if occupied.has(_cell_key(start)):
 			continue
@@ -114,39 +138,29 @@ func _exit_direction(cells: Array[Vector2i], board_size: Vector2i) -> Vector2i:
 			best = direction
 	return best
 
+func _piece_id(index: int) -> String:
+	return "P%d" % index
+
 func _generate_safe_multicell_fallback(piece_count: int, board_size: Vector2i) -> Dictionary:
 	var pieces: Array = []
 	var slots: Array = []
-
-	# Straight two-cell threads whose heads sit on the border and point outward.
-	# They are all immediately removable, so the fallback is mathematically solvable
-	# while still looking like actual threads instead of isolated arrowhead dots.
 	for x in range(2, board_size.x - 2):
 		slots.append([[Vector2i(x, 1), Vector2i(x, 0)], Vector2i.UP])
 		slots.append([[Vector2i(x, board_size.y - 2), Vector2i(x, board_size.y - 1)], Vector2i.DOWN])
 	for y in range(2, board_size.y - 2):
 		slots.append([[Vector2i(1, y), Vector2i(0, y)], Vector2i.LEFT])
 		slots.append([[Vector2i(board_size.x - 2, y), Vector2i(board_size.x - 1, y)], Vector2i.RIGHT])
-
-	if slots.size() < piece_count:
-		# This should not happen for our production board sizes, but keep a safe bound.
-		piece_count = slots.size()
-
-	# Shuffle so fallback threads are distributed around all four sides.
+	piece_count = mini(piece_count, slots.size())
 	for i in range(slots.size() - 1, 0, -1):
 		var j := rng.randi_range(0, i)
 		var tmp = slots[i]
 		slots[i] = slots[j]
 		slots[j] = tmp
-
 	for i in range(piece_count):
-		var id := "F%d" % i
 		var cells: Array[Vector2i] = []
 		for cell in slots[i][0]:
 			cells.append(cell)
-		var direction: Vector2i = slots[i][1]
-		pieces.append(PieceScript.new(id, cells, direction))
-
+		pieces.append(PieceScript.new("F%d" % i, cells, slots[i][1]))
 	var board = BoardScript.new(board_size.x, board_size.y, pieces)
 	var solution: Array[String] = DependencySolverScript.new().solve(board)
 	return {
