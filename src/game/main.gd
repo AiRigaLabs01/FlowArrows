@@ -25,6 +25,8 @@ var level_label: Label
 var moves_label: Label
 var lives_label: Label
 var hint_label: Label
+var game_over_backdrop: ColorRect
+var game_over_label: Label
 var new_level_button: Button
 var restart_button: Button
 var hint_button: Button
@@ -96,6 +98,28 @@ func _build_ui() -> void:
 	new_level_button.pressed.connect(_next_level)
 	add_child(new_level_button)
 
+	game_over_backdrop = ColorRect.new()
+	game_over_backdrop.position = Vector2(110, 720)
+	game_over_backdrop.size = Vector2(860, 250)
+	game_over_backdrop.color = Color(0.04, 0.05, 0.08, 0.88)
+	game_over_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	game_over_backdrop.visible = false
+	add_child(game_over_backdrop)
+
+	game_over_label = Label.new()
+	game_over_label.text = "GAME OVER\nRestart to try again"
+	game_over_label.position = Vector2(110, 745)
+	game_over_label.size = Vector2(860, 200)
+	game_over_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	game_over_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	game_over_label.add_theme_font_size_override("font_size", 66)
+	game_over_label.add_theme_color_override("font_color", Color(1.0, 0.25, 0.25, 1.0))
+	game_over_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
+	game_over_label.add_theme_constant_override("outline_size", 8)
+	game_over_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	game_over_label.visible = false
+	add_child(game_over_label)
+
 func _start_new_level() -> void:
 	_clear_all_piece_nodes()
 	game_over = false
@@ -103,6 +127,7 @@ func _start_new_level() -> void:
 	lives = MAX_LIVES
 	failed_piece_ids.clear()
 	hint_label.text = ""
+	_set_game_over_banner(false)
 	var piece_count: int = mini(START_PIECES + (level_number - 1), MAX_PIECES)
 	var board_size: Vector2i = _board_size_for_level(level_number)
 	var generated: Dictionary = generator.generate_chain(piece_count, board_size, level_number)
@@ -140,6 +165,7 @@ func _restart_level() -> void:
 	game_over = false
 	failed_piece_ids.clear()
 	hint_label.text = ""
+	_set_game_over_banner(false)
 	_update_board_layout()
 	_render_board()
 	_update_status()
@@ -149,6 +175,16 @@ func _next_level() -> void:
 		return
 	level_number += 1
 	_start_new_level()
+
+func _set_game_over_banner(value: bool) -> void:
+	if is_instance_valid(game_over_backdrop):
+		game_over_backdrop.visible = value
+	if is_instance_valid(game_over_label):
+		game_over_label.visible = value
+	if value and is_instance_valid(game_over_backdrop):
+		move_child(game_over_backdrop, get_child_count() - 1)
+	if value and is_instance_valid(game_over_label):
+		move_child(game_over_label, get_child_count() - 1)
 
 func _clear_all_piece_nodes() -> void:
 	for node in piece_nodes.values():
@@ -214,7 +250,7 @@ func _start_exit_animation(piece_id: String, view) -> void:
 	hint_label.text = ""
 	_update_status()
 
-	var duration: float = maxf(0.30, float(steps) * 0.075)
+	var duration: float = maxf(0.22, float(steps) * 0.055)
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(view, "exit_progress", float(steps), duration)
@@ -241,8 +277,8 @@ func _start_failed_animation(piece_id: String, view) -> void:
 	_update_status()
 
 	var impact_progress: float = board.blocked_progress(piece_id)
-	var outbound_duration: float = clampf(0.10 + impact_progress * 0.045, 0.12, 0.42)
-	var return_duration: float = clampf(0.14 + impact_progress * 0.035, 0.16, 0.38)
+	var outbound_duration: float = clampf(0.08 + impact_progress * 0.034, 0.10, 0.32)
+	var return_duration: float = clampf(0.10 + impact_progress * 0.028, 0.12, 0.30)
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_QUAD)
 	tween.tween_property(view, "exit_progress", impact_progress, outbound_duration).set_ease(Tween.EASE_OUT)
@@ -256,6 +292,7 @@ func _finish_failed_animation(piece_id: String, view) -> void:
 	if lives <= 0:
 		game_over = true
 		_set_piece_input_enabled(false)
+		_set_game_over_banner(true)
 		_update_status()
 		return
 	if is_instance_valid(view) and piece_nodes.has(piece_id):
@@ -297,7 +334,7 @@ func _update_status() -> void:
 	new_level_button.disabled = game_over
 	hint_button.disabled = game_over or board.is_solved()
 	if game_over:
-		status_label.text = "Game over · Restart"
+		status_label.text = "GAME OVER · Restart"
 	elif board.is_solved():
 		if active_exit_nodes.is_empty():
 			status_label.text = "Solved! Tap New level"
