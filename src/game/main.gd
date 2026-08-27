@@ -5,10 +5,12 @@ const FlowSolver = preload("res://src/core/solver.gd")
 const FlowGenerator = preload("res://src/core/generator.gd")
 const PieceView = preload("res://src/game/piece_view.gd")
 
-const CELL_SIZE := 105.0
-const BOARD_ORIGIN := Vector2(120, 420)
-const START_PIECES := 8
-const START_BOARD_SIZE := Vector2i(8, 8)
+const MAX_CELL_SIZE := 105.0
+const MIN_CELL_SIZE := 58.0
+const BOARD_AREA_POSITION := Vector2(70, 350)
+const BOARD_AREA_SIZE := Vector2(940, 1110)
+const START_PIECES := 10
+const MAX_PIECES := 16
 const MAX_LIVES := 3
 
 var board
@@ -29,6 +31,8 @@ var moves: int = 0
 var lives: int = MAX_LIVES
 var input_locked: bool = false
 var game_over: bool = false
+var current_cell_size: float = MAX_CELL_SIZE
+var current_board_origin: Vector2 = BOARD_AREA_POSITION
 
 func _ready() -> void:
 	_build_ui()
@@ -97,12 +101,34 @@ func _start_new_level() -> void:
 	lives = MAX_LIVES
 	failed_piece_ids.clear()
 	hint_label.text = ""
-	var piece_count: int = mini(START_PIECES + int((level_number - 1) / 2), 12)
-	var generated: Dictionary = generator.generate_chain(piece_count, START_BOARD_SIZE, level_number)
+	var piece_count: int = mini(START_PIECES + int((level_number - 1) / 2), MAX_PIECES)
+	var board_size: Vector2i = _board_size_for_level(level_number)
+	var generated: Dictionary = generator.generate_chain(piece_count, board_size, level_number)
 	board = generated["board"]
 	initial_board = board.copy()
+	_update_board_layout()
 	_render_board()
 	_update_status()
+
+func _board_size_for_level(level: int) -> Vector2i:
+	if level <= 2:
+		return Vector2i(8, 10)
+	if level <= 4:
+		return Vector2i(8, 11)
+	if level <= 7:
+		return Vector2i(9, 12)
+	if level <= 11:
+		return Vector2i(10, 13)
+	if level <= 16:
+		return Vector2i(10, 14)
+	return Vector2i(11, 15)
+
+func _update_board_layout() -> void:
+	var by_width: float = BOARD_AREA_SIZE.x / float(board.width)
+	var by_height: float = BOARD_AREA_SIZE.y / float(board.height)
+	current_cell_size = clampf(minf(by_width, by_height), MIN_CELL_SIZE, MAX_CELL_SIZE)
+	var board_pixel_size := Vector2(float(board.width), float(board.height)) * current_cell_size
+	current_board_origin = BOARD_AREA_POSITION + (BOARD_AREA_SIZE - board_pixel_size) * 0.5
 
 func _restart_level() -> void:
 	if input_locked:
@@ -113,6 +139,7 @@ func _restart_level() -> void:
 	game_over = false
 	failed_piece_ids.clear()
 	hint_label.text = ""
+	_update_board_layout()
 	_render_board()
 	_update_status()
 
@@ -132,8 +159,8 @@ func _render_board() -> void:
 		var piece = board.pieces[piece_id]
 		var view = PieceView.new()
 		view.set_meta("piece_id", piece_id)
-		view.position = BOARD_ORIGIN + Vector2(piece.cells[0]) * CELL_SIZE
-		view.setup(piece_id, piece.cells, piece.direction, CELL_SIZE)
+		view.position = current_board_origin + Vector2(piece.cells[0]) * current_cell_size
+		view.setup(piece_id, piece.cells, piece.direction, current_cell_size)
 		view.set_failed(failed_piece_ids.has(piece_id))
 		view.set_enabled(not input_locked and not game_over)
 		view.pressed.connect(_on_piece_pressed)
@@ -154,7 +181,7 @@ func _start_exit_animation(piece_id: String, view) -> void:
 		return
 	input_locked = true
 	_set_piece_input_enabled(false)
-	var duration: float = maxf(0.28, float(steps) * 0.085)
+	var duration: float = maxf(0.32, float(steps) * 0.09)
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(view, "exit_progress", float(steps), duration)
@@ -172,7 +199,7 @@ func _start_failed_animation(piece_id: String, view) -> void:
 	_set_piece_input_enabled(false)
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_QUAD)
-	tween.tween_property(view, "impact_offset", CELL_SIZE * 0.18, 0.10).set_ease(Tween.EASE_OUT)
+	tween.tween_property(view, "impact_offset", current_cell_size * 0.18, 0.10).set_ease(Tween.EASE_OUT)
 	tween.tween_property(view, "impact_offset", 0.0, 0.16).set_ease(Tween.EASE_IN)
 	tween.tween_callback(_finish_failed_animation.bind(view))
 
