@@ -98,7 +98,7 @@ func _start_new_level() -> void:
 	failed_piece_ids.clear()
 	hint_label.text = ""
 	var piece_count: int = mini(START_PIECES + int((level_number - 1) / 2), 12)
-	var generated: Dictionary = generator.generate_chain(piece_count, START_BOARD_SIZE)
+	var generated: Dictionary = generator.generate_chain(piece_count, START_BOARD_SIZE, level_number)
 	board = generated["board"]
 	initial_board = board.copy()
 	_render_board()
