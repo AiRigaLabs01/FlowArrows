@@ -1,7 +1,7 @@
 class_name FlowValidator
 extends RefCounted
 
-const SolverScript = preload("res://src/core/solver.gd")
+const DependencySolverScript = preload("res://src/core/dependency_solver.gd")
 
 func validate(board) -> Dictionary:
 	var errors: Array[String] = []
@@ -27,7 +27,7 @@ func validate(board) -> Dictionary:
 			else:
 				seen_cells[key] = piece_id
 
-	var solver = SolverScript.new()
+	var solver = DependencySolverScript.new()
 	var solution := solver.solve(board)
 	if not board.is_solved() and solution.is_empty():
 		errors.append("Board is not solvable")
