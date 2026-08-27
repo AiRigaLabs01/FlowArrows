@@ -5,12 +5,12 @@ const FlowSolver = preload("res://src/core/solver.gd")
 const FlowGenerator = preload("res://src/core/generator.gd")
 const PieceView = preload("res://src/game/piece_view.gd")
 
-const MAX_CELL_SIZE := 88.0
-const MIN_CELL_SIZE := 46.0
-const BOARD_AREA_POSITION := Vector2(55, 335)
-const BOARD_AREA_SIZE := Vector2(970, 1140)
-const START_PIECES := 12
-const MAX_PIECES := 18
+const MAX_CELL_SIZE := 72.0
+const MIN_CELL_SIZE := 38.0
+const BOARD_AREA_POSITION := Vector2(45, 325)
+const BOARD_AREA_SIZE := Vector2(990, 1160)
+const START_PIECES := 16
+const MAX_PIECES := 24
 const MAX_LIVES := 3
 
 var board
@@ -112,16 +112,16 @@ func _start_new_level() -> void:
 
 func _board_size_for_level(level: int) -> Vector2i:
 	if level <= 2:
-		return Vector2i(10, 14)
-	if level <= 4:
-		return Vector2i(11, 15)
-	if level <= 7:
-		return Vector2i(12, 16)
-	if level <= 11:
 		return Vector2i(13, 17)
-	if level <= 16:
+	if level <= 4:
 		return Vector2i(14, 18)
-	return Vector2i(15, 19)
+	if level <= 7:
+		return Vector2i(15, 19)
+	if level <= 11:
+		return Vector2i(16, 20)
+	if level <= 16:
+		return Vector2i(17, 21)
+	return Vector2i(18, 22)
 
 func _update_board_layout() -> void:
 	var by_width: float = BOARD_AREA_SIZE.x / float(board.width)
