@@ -3,12 +3,12 @@ extends Node2D
 
 signal pressed(piece_id: String, view: PieceView)
 
-const BASE_LINE_WIDTH := 24.0
-const BASE_HIT_RADIUS := 44.0
-const BASE_HEAD_LENGTH := 34.0
-const BASE_HEAD_WIDTH := 28.0
-const TRAIL_SPACING_FACTOR := 0.24
-const TRAIL_RADIUS_FACTOR := 0.045
+const BASE_LINE_WIDTH := 15.0
+const BASE_HIT_RADIUS := 38.0
+const BASE_HEAD_LENGTH := 24.0
+const BASE_HEAD_WIDTH := 16.0
+const TRAIL_SPACING_FACTOR := 0.22
+const TRAIL_RADIUS_FACTOR := 0.036
 
 var piece_id := ""
 var cells: Array[Vector2i] = []
@@ -49,7 +49,7 @@ func set_failed(value: bool) -> void:
 func _draw() -> void:
 	if cells.is_empty():
 		return
-	var scale_factor: float = clampf(cell_size / 105.0, 0.62, 1.15)
+	var scale_factor: float = clampf(cell_size / 88.0, 0.66, 1.12)
 	var line_width: float = BASE_LINE_WIDTH * scale_factor
 	var head_length: float = BASE_HEAD_LENGTH * scale_factor
 	var head_width: float = BASE_HEAD_WIDTH * scale_factor
@@ -71,10 +71,10 @@ func _draw() -> void:
 		body_color = Color(0.96, 0.24, 0.24, 1.0)
 
 	if points.size() == 1:
-		draw_circle(points[0], line_width * 0.55, body_color)
+		draw_circle(points[0], line_width * 0.50, body_color)
 	else:
 		draw_polyline(PackedVector2Array(points), body_color, line_width, true)
-	var tip: Vector2 = points[-1] + Vector2(direction) * cell_size * 0.30
+	var tip: Vector2 = points[-1] + Vector2(direction) * cell_size * 0.26
 	var back: Vector2 = tip - Vector2(direction) * head_length
 	var normal: Vector2 = Vector2(-direction.y, direction.x)
 	var triangle := PackedVector2Array([tip, back + normal * head_width, back - normal * head_width])
@@ -87,8 +87,8 @@ func _draw_exit_trail(scale_factor: float) -> void:
 	var vacated_length: float = minf(exit_progress * cell_size, _polyline_length(trajectory))
 	if vacated_length <= 0.0:
 		return
-	var spacing: float = maxf(10.0, cell_size * TRAIL_SPACING_FACTOR)
-	var radius: float = maxf(2.5, cell_size * TRAIL_RADIUS_FACTOR * scale_factor)
+	var spacing: float = maxf(8.0, cell_size * TRAIL_SPACING_FACTOR)
+	var radius: float = maxf(1.8, cell_size * TRAIL_RADIUS_FACTOR * scale_factor)
 	var trail_color := Color(0.48, 0.83, 0.78, 0.62)
 	var distance: float = 0.0
 	while distance <= vacated_length:
@@ -114,7 +114,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		pressed.emit(piece_id, self)
 
 func _hit_test(point: Vector2) -> bool:
-	var hit_radius: float = BASE_HIT_RADIUS * clampf(cell_size / 105.0, 0.70, 1.15)
+	var hit_radius: float = BASE_HIT_RADIUS * clampf(cell_size / 88.0, 0.76, 1.12)
 	var points: Array[Vector2] = _local_points()
 	for p: Vector2 in points:
 		if point.distance_to(p) <= hit_radius:
