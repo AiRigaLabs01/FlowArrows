@@ -10,8 +10,8 @@ const MAX_CELL_SIZE := 54.0
 const MIN_CELL_SIZE := 28.0
 const BOARD_AREA_POSITION := Vector2(35, 315)
 const BOARD_AREA_SIZE := Vector2(1010, 1180)
-const START_PIECES := 40
-const MAX_PIECES := 64
+const START_PIECES := 56
+const MAX_PIECES := 88
 const MAX_LIVES := 3
 
 var board
@@ -224,7 +224,7 @@ func _render_board() -> void:
 		piece_nodes[piece_id] = view
 
 func _on_piece_pressed(piece_id: String, view) -> void:
-	if game_over or not board.pieces.has(piece_id):
+	if game_over or not board.pieces.has(piece_id) or active_exit_nodes.has(piece_id):
 		return
 	if board.can_exit(piece_id):
 		_start_exit_animation(piece_id, view)
@@ -232,41 +232,26 @@ func _on_piece_pressed(piece_id: String, view) -> void:
 		_start_failed_animation(piece_id, view)
 
 func _start_exit_animation(piece_id: String, view) -> void:
-	if game_over or not board.pieces.has(piece_id):
-		return
 	var steps: int = board.exit_steps(piece_id)
 	if steps <= 0:
 		return
-	if not board.remove_piece(piece_id):
-		return
-
+	view.set_moving(true)
+	view.set_enabled(false)
+	var piece_snapshot = board.pieces[piece_id].copy()
+	board.remove_piece(piece_id)
 	moves += 1
 	failed_piece_ids.erase(piece_id)
 	piece_nodes.erase(piece_id)
 	active_exit_nodes[piece_id] = view
-	view.set_failed(false)
-	view.set_moving(true)
-	view.set_enabled(false)
-	hint_label.text = ""
-	_update_status()
-
-	var duration: float = maxf(0.22, float(steps) * 0.055)
+	var duration: float = maxf(0.20, float(steps) * 0.055)
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(view, "exit_progress", float(steps), duration)
-	tween.tween_callback(_finish_exit_animation.bind(piece_id, view))
-
-	_start_open_failed_pieces()
-
-func _finish_exit_animation(piece_id: String, view) -> void:
-	active_exit_nodes.erase(piece_id)
-	if is_instance_valid(view):
-		view.queue_free()
+	tween.tween_callback(_finish_exit_visual.bind(piece_id, view, piece_snapshot))
 	_update_status()
+	_release_open_failed_pieces()
 
 func _start_failed_animation(piece_id: String, view) -> void:
-	if not board.pieces.has(piece_id):
-		return
 	var first_failure := not failed_piece_ids.has(piece_id)
 	if first_failure:
 		failed_piece_ids[piece_id] = true
@@ -275,39 +260,52 @@ func _start_failed_animation(piece_id: String, view) -> void:
 	view.set_moving(true)
 	view.set_enabled(false)
 	_update_status()
-
-	var impact_progress: float = board.blocked_progress(piece_id)
-	var outbound_duration: float = clampf(0.08 + impact_progress * 0.034, 0.10, 0.32)
-	var return_duration: float = clampf(0.10 + impact_progress * 0.028, 0.12, 0.30)
+	var progress: float = board.blocked_progress(piece_id)
+	var outbound_duration: float = maxf(0.09, progress * 0.045)
+	var return_duration: float = maxf(0.12, progress * 0.052)
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_QUAD)
-	tween.tween_property(view, "exit_progress", impact_progress, outbound_duration).set_ease(Tween.EASE_OUT)
+	tween.tween_property(view, "exit_progress", progress, outbound_duration).set_ease(Tween.EASE_OUT)
 	tween.tween_property(view, "exit_progress", 0.0, return_duration).set_ease(Tween.EASE_IN)
-	tween.tween_callback(_finish_failed_animation.bind(piece_id, view))
+	tween.tween_callback(_finish_failed_animation.bind(view))
 
-func _finish_failed_animation(piece_id: String, view) -> void:
+func _finish_failed_animation(view) -> void:
 	if is_instance_valid(view):
 		view.exit_progress = 0.0
 		view.set_moving(false)
 	if lives <= 0:
 		game_over = true
-		_set_piece_input_enabled(false)
 		_set_game_over_banner(true)
+		_set_piece_input_enabled(false)
 		_update_status()
 		return
-	if is_instance_valid(view) and piece_nodes.has(piece_id):
+	if is_instance_valid(view):
 		view.set_enabled(true)
 	_update_status()
 
-func _start_open_failed_pieces() -> void:
-	if game_over:
+func _finish_exit_visual(piece_id: String, view, _piece_snapshot) -> void:
+	active_exit_nodes.erase(piece_id)
+	if is_instance_valid(view):
+		view.queue_free()
+	if board.is_solved():
+		status_label.text = "Solved! Tap New level"
 		return
-	var ids := failed_piece_ids.keys()
-	ids.sort()
-	for piece_id in ids:
-		var id := String(piece_id)
-		if board.pieces.has(id) and board.can_exit(id) and piece_nodes.has(id):
-			_start_exit_animation(id, piece_nodes[id])
+	_update_status()
+
+func _release_open_failed_pieces() -> void:
+	var released := true
+	while released:
+		released = false
+		var ids := failed_piece_ids.keys()
+		ids.sort()
+		for piece_key in ids:
+			var piece_id := String(piece_key)
+			if not board.pieces.has(piece_id) or not piece_nodes.has(piece_id):
+				continue
+			if board.can_exit(piece_id):
+				_start_exit_animation(piece_id, piece_nodes[piece_id])
+				released = true
+				break
 
 func _show_hint() -> void:
 	if game_over or board.is_solved():
@@ -332,13 +330,10 @@ func _update_status() -> void:
 	moves_label.text = "Moves: %d" % moves
 	lives_label.text = "Lives: %d/%d" % [lives, MAX_LIVES]
 	new_level_button.disabled = game_over
-	hint_button.disabled = game_over or board.is_solved()
+	hint_button.disabled = game_over
 	if game_over:
-		status_label.text = "GAME OVER · Restart"
+		status_label.text = "GAME OVER"
 	elif board.is_solved():
-		if active_exit_nodes.is_empty():
-			status_label.text = "Solved! Tap New level"
-		else:
-			status_label.text = "Solved!"
+		status_label.text = "Solved!"
 	else:
 		status_label.text = "Choose a thread"
