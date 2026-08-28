@@ -7,8 +7,9 @@ const DependencySolverScript = preload("res://src/core/dependency_solver.gd")
 const ValidatorScript = preload("res://src/core/validator.gd")
 const DifficultyScript = preload("res://src/core/difficulty.gd")
 
-const MAX_GENERATION_ATTEMPTS := 16
+const MAX_GENERATION_ATTEMPTS := 12
 const CANDIDATES_PER_PIECE := 96
+const DIFFICULTY_CANDIDATE_COUNT := 4
 
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -23,14 +24,45 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 	assert(board_size.x >= 3 and board_size.y >= 3)
 	complexity = maxi(complexity, 1)
 
-	# Construct the puzzle backwards. Every newly inserted piece must be removable
-	# from the board that already exists. Therefore reversing insertion order is a
-	# constructive proof of solvability, not a probabilistic post-check.
+	# Generate several mathematically valid boards and choose the one whose
+	# dependency structure is closest to the target difficulty for this level.
+	# This makes progression depend on the graph, not only on board dimensions.
+	var best: Dictionary = {}
+	var best_distance := 1 << 30
+	var successful_candidates := 0
+	var target_score: int = _target_difficulty_score(piece_count, complexity)
+
 	for _attempt in range(MAX_GENERATION_ATTEMPTS):
 		var generated := _generate_reverse_solvable(piece_count, board_size, complexity)
-		if not generated.is_empty():
-			return generated
-	return _generate_safe_multicell_fallback(piece_count, board_size)
+		if generated.is_empty():
+			continue
+		successful_candidates += 1
+		var score: int = int(generated["difficulty"]["score"])
+		var distance: int = abs(score - target_score)
+		if distance < best_distance:
+			best = generated
+			best_distance = distance
+		if successful_candidates >= DIFFICULTY_CANDIDATE_COUNT:
+			break
+
+	if not best.is_empty():
+		best["target_difficulty_score"] = target_score
+		best["difficulty_distance"] = best_distance
+		return best
+
+	var fallback := _generate_safe_multicell_fallback(piece_count, board_size)
+	fallback["target_difficulty_score"] = target_score
+	fallback["difficulty_distance"] = abs(int(fallback["difficulty"]["score"]) - target_score)
+	return fallback
+
+func _target_difficulty_score(piece_count: int, complexity: int) -> int:
+	# Piece count supplies the baseline, while level complexity progressively asks
+	# for deeper/more constrained dependency graphs. The curve is deliberately
+	# smooth so consecutive levels do not jump unpredictably.
+	var baseline: int = piece_count * 5
+	var progression: int = complexity * 14
+	var late_game: int = maxi(0, complexity - 8) * 5
+	return baseline + progression + late_game
 
 func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexity: int) -> Dictionary:
 	var pieces: Array = []
