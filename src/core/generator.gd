@@ -4,12 +4,15 @@ extends RefCounted
 const PieceScript = preload("res://src/core/piece.gd")
 const BoardScript = preload("res://src/core/board_state.gd")
 const DependencySolverScript = preload("res://src/core/dependency_solver.gd")
-const ValidatorScript = preload("res://src/core/validator.gd")
 const DifficultyScript = preload("res://src/core/difficulty.gd")
 
-const MAX_GENERATION_ATTEMPTS := 16
-const CANDIDATES_PER_PIECE := 128
-const DIFFICULTY_CANDIDATES := 5
+# Dense levels used to be expensive because every path candidate created a full
+# BoardState and ran collision logic over every existing piece. Keep the final
+# mathematical verification, but make candidate rejection lightweight.
+const MAX_GENERATION_ATTEMPTS := 5
+const CANDIDATES_PER_PIECE := 40
+const DIFFICULTY_CANDIDATES := 2
+const PATH_BUILD_ATTEMPTS := 28
 
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -29,8 +32,8 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 	var best: Dictionary = {}
 	var best_distance: float = INF
 
-	# Construct several proven-solvable boards and select by both mathematical
-	# difficulty and visual occupancy. Sparse boards are intentionally penalized.
+	# Two proven-solvable samples are enough for runtime generation. Difficulty
+	# remains mathematical, but starting a level should feel immediate.
 	for _sample in range(DIFFICULTY_CANDIDATES):
 		for _attempt in range(MAX_GENERATION_ATTEMPTS):
 			var generated := _generate_reverse_solvable(piece_count, board_size, complexity)
@@ -57,8 +60,6 @@ func _target_difficulty_score(piece_count: int, complexity: int) -> int:
 	return piece_count * 5 + 70 + level_term * 24 + int(pow(float(level_term), 1.25) * 5.0)
 
 func _target_board_density(complexity: int) -> float:
-	# The reference look is intentionally crowded. Keep a little breathing room so
-	# solvable exit corridors still exist, but push later boards close to full.
 	return minf(0.82 + float(maxi(complexity - 1, 0)) * 0.008, 0.92)
 
 func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexity: int) -> Dictionary:
@@ -73,14 +74,13 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 			if cells.is_empty():
 				continue
 			var direction: Vector2i = _exit_direction(cells, board_size)
-			var id := _piece_id(i)
-			var candidate = PieceScript.new(id, cells, direction)
-			var trial_pieces: Array = pieces.duplicate()
-			trial_pieces.append(candidate)
-			var trial_board = BoardScript.new(board_size.x, board_size.y, trial_pieces)
-			if not trial_board.can_exit(id):
+			# This replaces construction of a temporary board for every candidate.
+			# It simulates only this thread against the occupancy hash, including
+			# self-overlap, so the acceptance rule is the same but much cheaper.
+			if not _candidate_can_exit(cells, direction, board_size, occupied):
 				continue
-			accepted = candidate
+			var id := _piece_id(i)
+			accepted = PieceScript.new(id, cells, direction)
 			break
 
 		if accepted == null:
@@ -95,6 +95,7 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 	for i in range(insertion_order.size() - 1, -1, -1):
 		known_solution.append(insertion_order[i])
 
+	# One exact dependency-graph pass remains as the final correctness oracle.
 	var graph_solution: Array[String] = DependencySolverScript.new().solve(board)
 	if graph_solution.size() != piece_count:
 		return {}
@@ -105,22 +106,43 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 		"difficulty": DifficultyScript.new().estimate(board, graph_solution),
 	}
 
+func _candidate_can_exit(cells: Array[Vector2i], direction: Vector2i, board_size: Vector2i, occupied: Dictionary) -> bool:
+	var positions: Array[Vector2i] = cells.duplicate()
+	var max_steps: int = board_size.x + board_size.y + positions.size() + 4
+	for _step in range(max_steps):
+		var previous: Array[Vector2i] = positions.duplicate()
+		for i in range(positions.size() - 1):
+			positions[i] = previous[i + 1]
+		positions[-1] = previous[-1] + direction
+
+		var inside_count := 0
+		var own_cells: Dictionary = {}
+		for cell: Vector2i in positions:
+			if not _inside(cell, board_size):
+				continue
+			inside_count += 1
+			var key := _cell_key(cell)
+			if own_cells.has(key) or occupied.has(key):
+				return false
+			own_cells[key] = true
+		if inside_count == 0:
+			return true
+	return false
+
 func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) -> Array[Vector2i]:
-	# Long threads are the default, not the exception. Level 1 already contains
-	# substantial paths; later levels add both length and bends.
 	var min_length: int = mini(6 + int((complexity - 1) / 6), 9)
 	var max_length: int = mini(14 + int((complexity - 1) / 2), 20)
 	var spread: int = maxi(max_length - min_length, 1)
-	# Squaring the random value biases the result toward max_length.
 	var target_length: int = max_length - int(pow(rng.randf(), 2.0) * float(spread))
 	var desired_turns: int = mini(2 + int((complexity - 1) / 3), 7)
-	var minimum_accepted_length: int = maxi(min_length, int(ceil(float(target_length) * 0.75)))
+	var minimum_accepted_length: int = maxi(min_length, int(ceil(float(target_length) * 0.72)))
 
-	for _attempt in range(96):
+	for _attempt in range(PATH_BUILD_ATTEMPTS):
 		var start := _choose_empty_start(board_size, occupied)
 		if start.x < 0:
 			return []
 		var path: Array[Vector2i] = [start]
+		var path_keys: Dictionary = {_cell_key(start): true}
 		var previous_direction := Vector2i.ZERO
 		var turns := 0
 		while path.size() < target_length:
@@ -129,7 +151,8 @@ func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) ->
 			var straight_candidates: Array[Vector2i] = []
 			for direction: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
 				var next: Vector2i = path[-1] + direction
-				if not _inside(next, board_size) or occupied.has(_cell_key(next)) or next in path:
+				var key := _cell_key(next)
+				if not _inside(next, board_size) or occupied.has(key) or path_keys.has(key):
 					continue
 				candidates.append(next)
 				if previous_direction != Vector2i.ZERO and direction != previous_direction and direction != -previous_direction:
@@ -145,8 +168,6 @@ func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) ->
 			elif not straight_candidates.is_empty() and rng.randf() < 0.70:
 				next_cell = straight_candidates[rng.randi_range(0, straight_candidates.size() - 1)]
 			else:
-				# Prefer cells near existing geometry once the mandatory bends exist;
-				# this closes visible holes without permitting overlap.
 				next_cell = _choose_dense_candidate(candidates, occupied)
 
 			var direction: Vector2i = next_cell - path[-1]
@@ -154,17 +175,16 @@ func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) ->
 				turns += 1
 			previous_direction = direction
 			path.append(next_cell)
+			path_keys[_cell_key(next_cell)] = true
 
 		if path.size() >= minimum_accepted_length and turns >= mini(desired_turns, path.size() - 2):
 			return path
 	return []
 
 func _choose_empty_start(board_size: Vector2i, occupied: Dictionary) -> Vector2i:
-	# Sample several empty cells and prefer one adjacent to existing threads. This
-	# packs new paths into gaps instead of scattering starts uniformly.
 	var best := Vector2i(-1, -1)
 	var best_score := -1
-	for _i in range(28):
+	for _i in range(18):
 		var cell := Vector2i(rng.randi_range(0, board_size.x - 1), rng.randi_range(0, board_size.y - 1))
 		if occupied.has(_cell_key(cell)):
 			continue
@@ -206,20 +226,7 @@ func _exit_direction(cells: Array[Vector2i], board_size: Vector2i) -> Vector2i:
 	var forward: Vector2i = head - previous
 	if forward in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
 		return forward
-	var distances := {
-		Vector2i.LEFT: head.x,
-		Vector2i.RIGHT: board_size.x - 1 - head.x,
-		Vector2i.UP: head.y,
-		Vector2i.DOWN: board_size.y - 1 - head.y,
-	}
-	var best := Vector2i.RIGHT
-	var best_distance: int = 1 << 30
-	for direction in distances:
-		var distance: int = distances[direction]
-		if distance < best_distance:
-			best_distance = distance
-			best = direction
-	return best
+	return Vector2i.RIGHT
 
 func _piece_id(index: int) -> String:
 	return "P%d" % index
