@@ -7,9 +7,9 @@ const DependencySolverScript = preload("res://src/core/dependency_solver.gd")
 const ValidatorScript = preload("res://src/core/validator.gd")
 const DifficultyScript = preload("res://src/core/difficulty.gd")
 
-const MAX_GENERATION_ATTEMPTS := 12
+const MAX_GENERATION_ATTEMPTS := 16
 const CANDIDATES_PER_PIECE := 96
-const DIFFICULTY_CANDIDATE_COUNT := 4
+const DIFFICULTY_CANDIDATES := 5
 
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -24,45 +24,35 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 	assert(board_size.x >= 3 and board_size.y >= 3)
 	complexity = maxi(complexity, 1)
 
-	# Generate several mathematically valid boards and choose the one whose
-	# dependency structure is closest to the target difficulty for this level.
-	# This makes progression depend on the graph, not only on board dimensions.
-	var best: Dictionary = {}
-	var best_distance := 1 << 30
-	var successful_candidates := 0
 	var target_score: int = _target_difficulty_score(piece_count, complexity)
+	var best: Dictionary = {}
+	var best_distance: int = 1 << 30
 
-	for _attempt in range(MAX_GENERATION_ATTEMPTS):
-		var generated := _generate_reverse_solvable(piece_count, board_size, complexity)
-		if generated.is_empty():
-			continue
-		successful_candidates += 1
-		var score: int = int(generated["difficulty"]["score"])
-		var distance: int = abs(score - target_score)
-		if distance < best_distance:
-			best = generated
-			best_distance = distance
-		if successful_candidates >= DIFFICULTY_CANDIDATE_COUNT:
+	# Construct several proven-solvable boards and select the one whose dependency
+	# structure is closest to the target difficulty for this level.
+	for _sample in range(DIFFICULTY_CANDIDATES):
+		for _attempt in range(MAX_GENERATION_ATTEMPTS):
+			var generated := _generate_reverse_solvable(piece_count, board_size, complexity)
+			if generated.is_empty():
+				continue
+			var score: int = int(generated["difficulty"]["score"])
+			var distance: int = absi(score - target_score)
+			if best.is_empty() or distance < best_distance:
+				best = generated
+				best_distance = distance
 			break
 
 	if not best.is_empty():
 		best["target_difficulty_score"] = target_score
-		best["difficulty_distance"] = best_distance
 		return best
-
-	var fallback := _generate_safe_multicell_fallback(piece_count, board_size)
-	fallback["target_difficulty_score"] = target_score
-	fallback["difficulty_distance"] = abs(int(fallback["difficulty"]["score"]) - target_score)
-	return fallback
+	return _generate_safe_multicell_fallback(piece_count, board_size)
 
 func _target_difficulty_score(piece_count: int, complexity: int) -> int:
-	# Piece count supplies the baseline, while level complexity progressively asks
-	# for deeper/more constrained dependency graphs. The curve is deliberately
-	# smooth so consecutive levels do not jump unpredictably.
-	var baseline: int = piece_count * 5
-	var progression: int = complexity * 14
-	var late_game: int = maxi(0, complexity - 8) * 5
-	return baseline + progression + late_game
+	# Piece count sets the baseline; dependency structure increasingly dominates
+	# as the level number grows. The curve is intentionally smooth rather than
+	# stepping only when board dimensions change.
+	var level_term: int = maxi(complexity - 1, 0)
+	return piece_count * 5 + 70 + level_term * 24 + int(pow(float(level_term), 1.25) * 5.0)
 
 func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexity: int) -> Dictionary:
 	var pieces: Array = []
@@ -111,12 +101,14 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 	}
 
 func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) -> Array[Vector2i]:
-	var min_length: int = mini(2 + int((complexity - 1) / 4), 4)
-	var max_length: int = mini(4 + int((complexity - 1) / 2), 8)
+	# Threads should already look like real paths on level 1. Complexity then adds
+	# length and bends rather than starting from mostly one-segment arrows.
+	var min_length: int = mini(3 + int((complexity - 1) / 5), 6)
+	var max_length: int = mini(7 + int((complexity - 1) / 2), 12)
 	var target_length: int = rng.randi_range(min_length, max_length)
-	var desired_turns: int = mini(int((complexity - 1) / 2), 4)
+	var desired_turns: int = mini(1 + int((complexity - 1) / 3), 6)
 
-	for _attempt in range(48):
+	for _attempt in range(64):
 		var start := Vector2i(rng.randi_range(0, board_size.x - 1), rng.randi_range(0, board_size.y - 1))
 		if occupied.has(_cell_key(start)):
 			continue
@@ -126,6 +118,7 @@ func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) ->
 		while path.size() < target_length:
 			var candidates: Array[Vector2i] = []
 			var turning_candidates: Array[Vector2i] = []
+			var straight_candidates: Array[Vector2i] = []
 			for direction: Vector2i in [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]:
 				var next: Vector2i = path[-1] + direction
 				if not _inside(next, board_size) or occupied.has(_cell_key(next)) or next in path:
@@ -133,19 +126,26 @@ func _build_path(board_size: Vector2i, occupied: Dictionary, complexity: int) ->
 				candidates.append(next)
 				if previous_direction != Vector2i.ZERO and direction != previous_direction and direction != -previous_direction:
 					turning_candidates.append(next)
+				elif previous_direction == Vector2i.ZERO or direction == previous_direction:
+					straight_candidates.append(next)
 			if candidates.is_empty():
 				break
+
 			var next_cell: Vector2i
 			if turns < desired_turns and not turning_candidates.is_empty():
 				next_cell = turning_candidates[rng.randi_range(0, turning_candidates.size() - 1)]
+			elif not straight_candidates.is_empty() and rng.randf() < 0.60:
+				next_cell = straight_candidates[rng.randi_range(0, straight_candidates.size() - 1)]
 			else:
 				next_cell = candidates[rng.randi_range(0, candidates.size() - 1)]
+
 			var direction: Vector2i = next_cell - path[-1]
 			if previous_direction != Vector2i.ZERO and direction != previous_direction:
 				turns += 1
 			previous_direction = direction
 			path.append(next_cell)
-		if path.size() >= min_length and (desired_turns == 0 or turns >= mini(desired_turns, path.size() - 2)):
+
+		if path.size() >= min_length and turns >= mini(desired_turns, path.size() - 2):
 			return path
 	return []
 
