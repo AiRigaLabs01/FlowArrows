@@ -1,0 +1,124 @@
+name: Build Playable Artifacts
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+
+concurrency:
+  group: build-artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows EXE
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prepare export templates
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates
+          mv /root/.local/share/godot/export_templates/4.4.stable ~/.local/share/godot/export_templates/4.4.stable
+
+      - name: Build Windows
+        run: |
+          mkdir -p build/windows
+          godot --headless --export-release "Windows Desktop" "$(pwd)/build/windows/FlowArrows.exe"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: FlowArrows-Windows
+          path: build/windows
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.4
+    env:
+      ANDROID_HOME: /usr/lib/android-sdk
+      ANDROID_SDK_ROOT: /usr/lib/android-sdk
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prepare export templates
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates
+          mv /root/.local/share/godot/export_templates/4.4.stable ~/.local/share/godot/export_templates/4.4.stable
+          test -f ~/.local/share/godot/export_templates/4.4.stable/android_debug.apk
+
+      - name: Install Android toolchain
+        run: |
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          sdkmanager --sdk_root="$ANDROID_HOME" \
+            "platform-tools" \
+            "build-tools;34.0.0" \
+            "platforms;android-34" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;23.2.8568313"
+
+          test -f "$ANDROID_HOME/platforms/android-34/android.jar"
+          test -x "$ANDROID_HOME/build-tools/34.0.0/aapt2"
+          test -x "$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          test -x "$JAVA_HOME/bin/java"
+          test -x "$JAVA_HOME/bin/keytool"
+
+      - name: Create Android debug keystore
+        run: |
+          mkdir -p ~/.android
+          "$JAVA_HOME/bin/keytool" -genkeypair \
+            -keystore ~/.android/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+          test -f ~/.android/debug.keystore
+
+      - name: Configure Godot Android export
+        run: |
+          rm -rf ~/.config/godot
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-4.4.tres <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "/github/home/.android/debug.keystore"
+          export/android/debug_keystore_pass = "android"
+          EOF
+
+      - name: Build Android debug APK
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /github/home/.android/debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+        run: |
+          mkdir -p build/android
+          godot --headless --path . --export-debug "Android Debug" "$(pwd)/build/android/FlowArrows-debug.apk"
+          test -f build/android/FlowArrows-debug.apk
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: FlowArrows-Android
+          path: build/android/FlowArrows-debug.apk
+          if-no-files-found: error
+          retention-days: 14
