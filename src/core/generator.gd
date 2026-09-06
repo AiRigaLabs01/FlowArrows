@@ -10,6 +10,9 @@ const MAX_GENERATION_ATTEMPTS := 4
 const DIFFICULTY_CANDIDATES := 2
 const EXIT_SEED_SAMPLES := 72
 const PATH_BUILD_ATTEMPTS := 18
+const LOCAL_BACKTRACK_LIMIT := 48
+const LOCAL_BACKTRACK_MIN := 2
+const LOCAL_BACKTRACK_MAX := 5
 
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -31,6 +34,7 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 	var attempts_total := 0
 	var max_pieces_placed := 0
 	var max_occupied_cells := 0
+	var max_backtracks := 0
 	var last_reason := "no valid candidate"
 	var graph_failures := 0
 
@@ -42,6 +46,7 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 				var diag: Dictionary = generated.get("diagnostics", {})
 				max_pieces_placed = maxi(max_pieces_placed, int(diag.get("pieces_placed", 0)))
 				max_occupied_cells = maxi(max_occupied_cells, int(diag.get("occupied_cells", 0)))
+				max_backtracks = maxi(max_backtracks, int(diag.get("backtracks", 0)))
 				last_reason = String(diag.get("reason", last_reason))
 				if last_reason == "dependency verification failed":
 					graph_failures += 1
@@ -75,6 +80,7 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 			"target_score": target_score,
 			"board_size": "%dx%d" % [board_size.x, board_size.y],
 			"graph_failures": graph_failures,
+			"backtracks": max_backtracks,
 		}
 	}
 
@@ -90,8 +96,17 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 	var occupied: Dictionary = {}
 	var insertion_order: Array[String] = []
 	var target_occupied_cells: int = mini(int(round(float(board_size.x * board_size.y) * target_density)), board_size.x * board_size.y - 4)
+	var i := 0
+	var backtracks := 0
+	var max_pieces_reached := 0
+	var max_occupied_reached := 0
 
-	for i in range(piece_count):
+	# Dense generation tends to fail only near the end. Instead of throwing away a
+	# good 40+ piece partial board, rewind a few recent threads and explore a new
+	# local geometry. This is bounded backtracking, not a visual fallback.
+	while i < piece_count:
+		max_pieces_reached = maxi(max_pieces_reached, i)
+		max_occupied_reached = maxi(max_occupied_reached, occupied.size())
 		var remaining_pieces: int = piece_count - i
 		var remaining_target_cells: int = maxi(target_occupied_cells - occupied.size(), remaining_pieces * 3)
 		var ideal_length: int = maxi(3, int(round(float(remaining_target_cells) / float(remaining_pieces))))
@@ -108,23 +123,38 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 			break
 
 		if accepted == null:
+			if i >= LOCAL_BACKTRACK_MIN and backtracks < LOCAL_BACKTRACK_LIMIT:
+				var rewind: int = mini(rng.randi_range(LOCAL_BACKTRACK_MIN, LOCAL_BACKTRACK_MAX), i)
+				for _r in range(rewind):
+					var removed = pieces.pop_back()
+					insertion_order.pop_back()
+					for cell: Vector2i in removed.cells:
+						occupied.erase(_cell_key(cell))
+				i -= rewind
+				backtracks += 1
+				continue
 			return {
 				"generation_failed": true,
 				"diagnostics": {
-					"reason": "no exit-aware path for piece %d" % i,
-					"pieces_placed": pieces.size(),
-					"occupied_cells": occupied.size(),
+					"reason": "no exit-aware path after local backtracking near piece %d" % i,
+					"pieces_placed": max_pieces_reached,
+					"occupied_cells": max_occupied_reached,
+					"backtracks": backtracks,
 				}
 			}
+
 		pieces.append(accepted)
 		insertion_order.append(accepted.id)
 		for cell: Vector2i in accepted.cells:
 			occupied[_cell_key(cell)] = true
+		i += 1
 
+	max_pieces_reached = maxi(max_pieces_reached, pieces.size())
+	max_occupied_reached = maxi(max_occupied_reached, occupied.size())
 	var board = BoardScript.new(board_size.x, board_size.y, pieces)
 	var known_solution: Array[String] = []
-	for i in range(insertion_order.size() - 1, -1, -1):
-		known_solution.append(insertion_order[i])
+	for solution_index in range(insertion_order.size() - 1, -1, -1):
+		known_solution.append(insertion_order[solution_index])
 
 	var graph_solution: Array[String] = DependencySolverScript.new().solve(board)
 	if graph_solution.size() != piece_count:
@@ -134,6 +164,7 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 				"reason": "dependency verification failed",
 				"pieces_placed": pieces.size(),
 				"occupied_cells": occupied.size(),
+				"backtracks": backtracks,
 			}
 		}
 
@@ -141,6 +172,7 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 		"board": board,
 		"known_solution": known_solution,
 		"difficulty": DifficultyScript.new().estimate(board, graph_solution),
+		"generation_backtracks": backtracks,
 	}
 
 func _build_exit_aware_path(board_size: Vector2i, occupied: Dictionary, complexity: int, ideal_length: int) -> Dictionary:
@@ -216,6 +248,7 @@ func _choose_exit_seed(board_size: Vector2i, occupied: Dictionary) -> Dictionary
 	var best: Dictionary = {}
 	var best_score := -1000000.0
 	var directions: Array[Vector2i] = [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
+	var occupancy_ratio := float(occupied.size()) / float(board_size.x * board_size.y)
 
 	for _sample in range(EXIT_SEED_SAMPLES):
 		var head := Vector2i(rng.randi_range(0, board_size.x - 1), rng.randi_range(0, board_size.y - 1))
@@ -228,7 +261,10 @@ func _choose_exit_seed(board_size: Vector2i, occupied: Dictionary) -> Dictionary
 			var ray_steps: int = _clear_exit_ray_steps(head, direction, board_size, occupied)
 			if ray_steps < 0:
 				continue
-			var score := float(ray_steps * 5 + _occupied_neighbor_count(head, occupied) * 3)
+			# Early in generation, interior heads are desirable. Near saturation, shorter
+			# clear rays are more valuable because they keep placement options alive.
+			var ray_weight := 5.0 if occupancy_ratio < 0.55 else -2.0
+			var score := float(ray_steps) * ray_weight + float(_occupied_neighbor_count(head, occupied) * 3)
 			score += rng.randf() * 3.0
 			if score > best_score:
 				best_score = score
