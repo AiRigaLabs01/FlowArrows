@@ -10,8 +10,10 @@ const MAX_CELL_SIZE := 54.0
 const MIN_CELL_SIZE := 28.0
 const BOARD_AREA_POSITION := Vector2(35, 315)
 const BOARD_AREA_SIZE := Vector2(1010, 1180)
-const START_PIECES := 56
-const MAX_PIECES := 88
+# Dense boards are easier to construct with fewer, substantially longer threads.
+# This also matches the AmazeGO reference better than packing many short arrows.
+const START_PIECES := 42
+const MAX_PIECES := 64
 const MAX_LIVES := 3
 
 var board
@@ -128,7 +130,9 @@ func _start_new_level() -> void:
 	failed_piece_ids.clear()
 	hint_label.text = ""
 	_set_game_over_banner(false)
-	var piece_count: int = mini(START_PIECES + (level_number - 1), MAX_PIECES)
+	# Increase arrow count slowly. Higher levels become harder primarily through
+	# longer paths and dependency structure instead of an explosion of short pieces.
+	var piece_count: int = mini(START_PIECES + int((level_number - 1) / 2), MAX_PIECES)
 	var board_size: Vector2i = _board_size_for_level(level_number)
 	var generated: Dictionary = generator.generate_chain(piece_count, board_size, level_number)
 	if bool(generated.get("generation_failed", false)) or not generated.has("board"):
@@ -207,6 +211,7 @@ func _show_generation_failure(info: Dictionary, requested_pieces: int, board_siz
 	var max_density := float(info.get("max_density", 0.0)) * 100.0
 	var target_density := float(info.get("target_density", 0.0)) * 100.0
 	var graph_failures := int(info.get("graph_failures", 0))
+	var backtracks := int(info.get("backtracks", 0))
 
 	level_label.text = "Level %d · generation diagnostics" % level_number
 	moves_label.text = ""
@@ -219,7 +224,7 @@ func _show_generation_failure(info: Dictionary, requested_pieces: int, board_siz
 
 	game_over_backdrop.visible = true
 	game_over_label.visible = true
-	game_over_label.text = "GENERATION FAILED\n\nReason: %s\nBoard: %dx%d · requested: %d pieces\nBest attempt: %d pieces · %.1f%% density\nTarget density: %.1f%% · attempts: %d\nDependency verification failures: %d\n\nPress Restart to retry" % [reason, board_size.x, board_size.y, requested_pieces, max_pieces, max_density, target_density, attempts, graph_failures]
+	game_over_label.text = "GENERATION FAILED\n\nReason: %s\nBoard: %dx%d · requested: %d pieces\nBest attempt: %d pieces · %.1f%% density\nTarget density: %.1f%% · attempts: %d\nLocal backtracks: %d · dependency failures: %d\n\nPress Restart to retry" % [reason, board_size.x, board_size.y, requested_pieces, max_pieces, max_density, target_density, attempts, backtracks, graph_failures]
 	game_over_label.add_theme_font_size_override("font_size", 28)
 	game_over_label.add_theme_color_override("font_color", Color(1.0, 0.72, 0.28, 1.0))
 	game_over_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
