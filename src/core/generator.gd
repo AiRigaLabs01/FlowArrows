@@ -28,11 +28,23 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 	var target_density: float = _target_board_density(complexity)
 	var best: Dictionary = {}
 	var best_distance: float = INF
+	var attempts_total := 0
+	var max_pieces_placed := 0
+	var max_occupied_cells := 0
+	var last_reason := "no valid candidate"
+	var graph_failures := 0
 
 	for _sample in range(DIFFICULTY_CANDIDATES):
 		for _attempt in range(MAX_GENERATION_ATTEMPTS):
+			attempts_total += 1
 			var generated := _generate_reverse_solvable(piece_count, board_size, complexity, target_density)
-			if generated.is_empty():
+			if bool(generated.get("generation_failed", false)):
+				var diag: Dictionary = generated.get("diagnostics", {})
+				max_pieces_placed = maxi(max_pieces_placed, int(diag.get("pieces_placed", 0)))
+				max_occupied_cells = maxi(max_occupied_cells, int(diag.get("occupied_cells", 0)))
+				last_reason = String(diag.get("reason", last_reason))
+				if last_reason == "dependency verification failed":
+					graph_failures += 1
 				continue
 			var score: int = int(generated["difficulty"]["score"])
 			var density: float = float(generated["difficulty"]["board_density"])
@@ -49,9 +61,22 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 		best["target_board_density"] = target_density
 		return best
 
-	# No emergency board: generation failure must stay visible during development.
-	# Hiding it behind a simplistic fallback makes it impossible to judge the real generator.
-	return {}
+	var board_cells := board_size.x * board_size.y
+	return {
+		"generation_failed": true,
+		"diagnostics": {
+			"reason": last_reason,
+			"attempts": attempts_total,
+			"requested_pieces": piece_count,
+			"max_pieces_placed": max_pieces_placed,
+			"max_occupied_cells": max_occupied_cells,
+			"max_density": 0.0 if board_cells <= 0 else float(max_occupied_cells) / float(board_cells),
+			"target_density": target_density,
+			"target_score": target_score,
+			"board_size": "%dx%d" % [board_size.x, board_size.y],
+			"graph_failures": graph_failures,
+		}
+	}
 
 func _target_difficulty_score(piece_count: int, complexity: int) -> int:
 	var level_term: int = maxi(complexity - 1, 0)
@@ -83,7 +108,14 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 			break
 
 		if accepted == null:
-			return {}
+			return {
+				"generation_failed": true,
+				"diagnostics": {
+					"reason": "no exit-aware path for piece %d" % i,
+					"pieces_placed": pieces.size(),
+					"occupied_cells": occupied.size(),
+				}
+			}
 		pieces.append(accepted)
 		insertion_order.append(accepted.id)
 		for cell: Vector2i in accepted.cells:
@@ -96,7 +128,14 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 
 	var graph_solution: Array[String] = DependencySolverScript.new().solve(board)
 	if graph_solution.size() != piece_count:
-		return {}
+		return {
+			"generation_failed": true,
+			"diagnostics": {
+				"reason": "dependency verification failed",
+				"pieces_placed": pieces.size(),
+				"occupied_cells": occupied.size(),
+			}
+		}
 
 	return {
 		"board": board,
