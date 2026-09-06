@@ -48,14 +48,16 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 		best["target_difficulty_score"] = target_score
 		best["target_board_density"] = target_density
 		return best
-	return _generate_safe_multicell_fallback(piece_count, board_size)
+
+	# No emergency board: generation failure must stay visible during development.
+	# Hiding it behind a simplistic fallback makes it impossible to judge the real generator.
+	return {}
 
 func _target_difficulty_score(piece_count: int, complexity: int) -> int:
 	var level_term: int = maxi(complexity - 1, 0)
 	return piece_count * 5 + 70 + level_term * 24 + int(pow(float(level_term), 1.25) * 5.0)
 
 func _target_board_density(complexity: int) -> float:
-	# Dense by default, but leave just enough empty cells to preserve exit corridors.
 	return minf(0.84 + float(maxi(complexity - 1, 0)) * 0.006, 0.91)
 
 func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexity: int, target_density: float) -> Dictionary:
@@ -92,8 +94,6 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 	for i in range(insertion_order.size() - 1, -1, -1):
 		known_solution.append(insertion_order[i])
 
-	# Reverse construction is already a proof of solvability. Keep the graph solver
-	# as an independent correctness oracle and to derive the actual dependency order.
 	var graph_solution: Array[String] = DependencySolverScript.new().solve(board)
 	if graph_solution.size() != piece_count:
 		return {}
@@ -105,9 +105,6 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 	}
 
 func _build_exit_aware_path(board_size: Vector2i, occupied: Dictionary, complexity: int, ideal_length: int) -> Dictionary:
-	# Pick the arrow head first. Its forward ray must currently be clear, which makes
-	# the new thread removable by construction. Later inserted threads are allowed to
-	# occupy that ray and become blockers, naturally creating an acyclic dependency DAG.
 	var seed: Dictionary = _choose_exit_seed(board_size, occupied)
 	if seed.is_empty():
 		return {}
@@ -192,8 +189,6 @@ func _choose_exit_seed(board_size: Vector2i, occupied: Dictionary) -> Dictionary
 			var ray_steps: int = _clear_exit_ray_steps(head, direction, board_size, occupied)
 			if ray_steps < 0:
 				continue
-			# Prefer heads deeper inside the field and near existing geometry. This is the
-			# key difference from the old fallback-like look where all heads sat on edges.
 			var score := float(ray_steps * 5 + _occupied_neighbor_count(head, occupied) * 3)
 			score += rng.randf() * 3.0
 			if score > best_score:
@@ -203,7 +198,6 @@ func _choose_exit_seed(board_size: Vector2i, occupied: Dictionary) -> Dictionary
 	if not best.is_empty():
 		return best
 
-	# Deterministic scan as a last chance when the board is already very dense.
 	for y in range(board_size.y):
 		for x in range(board_size.x):
 			var head := Vector2i(x, y)
@@ -237,8 +231,6 @@ func _choose_growth_candidate(candidates: Array[Vector2i], board_size: Vector2i,
 			var key := _cell_key(neighbor)
 			if _inside(neighbor, board_size) and not occupied.has(key) and not path_keys.has(key):
 				free_neighbors += 1
-		# Pack near existing lines, but preserve enough onward choices to avoid short
-		# dead-end fragments. A small random term prevents repeated regular patterns.
 		var score := _occupied_neighbor_count(cell, occupied) * 3 + free_neighbors * 2 + rng.randi_range(0, 2)
 		if score > best_score:
 			best_score = score
@@ -256,34 +248,6 @@ func _occupied_neighbor_count(cell: Vector2i, occupied: Dictionary) -> int:
 
 func _piece_id(index: int) -> String:
 	return "P%d" % index
-
-func _generate_safe_multicell_fallback(piece_count: int, board_size: Vector2i) -> Dictionary:
-	var pieces: Array = []
-	var slots: Array = []
-	for x in range(2, board_size.x - 2):
-		slots.append([[Vector2i(x, 1), Vector2i(x, 0)], Vector2i.UP])
-		slots.append([[Vector2i(x, board_size.y - 2), Vector2i(x, board_size.y - 1)], Vector2i.DOWN])
-	for y in range(2, board_size.y - 2):
-		slots.append([[Vector2i(1, y), Vector2i(0, y)], Vector2i.LEFT])
-		slots.append([[Vector2i(board_size.x - 2, y), Vector2i(board_size.x - 1, y)], Vector2i.RIGHT])
-	piece_count = mini(piece_count, slots.size())
-	for i in range(slots.size() - 1, 0, -1):
-		var j := rng.randi_range(0, i)
-		var tmp = slots[i]
-		slots[i] = slots[j]
-		slots[j] = tmp
-	for i in range(piece_count):
-		var cells: Array[Vector2i] = []
-		for cell in slots[i][0]:
-			cells.append(cell)
-		pieces.append(PieceScript.new("F%d" % i, cells, slots[i][1]))
-	var board = BoardScript.new(board_size.x, board_size.y, pieces)
-	var solution: Array[String] = DependencySolverScript.new().solve(board)
-	return {
-		"board": board,
-		"known_solution": solution,
-		"difficulty": DifficultyScript.new().estimate(board, solution),
-	}
 
 func _inside(cell: Vector2i, board_size: Vector2i) -> bool:
 	return cell.x >= 0 and cell.x < board_size.x and cell.y >= 0 and cell.y < board_size.y
