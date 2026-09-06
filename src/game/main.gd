@@ -35,6 +35,8 @@ var level_number: int = 1
 var moves: int = 0
 var lives: int = MAX_LIVES
 var game_over: bool = false
+var generation_failed: bool = false
+var generation_failure_info: Dictionary = {}
 var current_cell_size: float = MAX_CELL_SIZE
 var current_board_origin: Vector2 = BOARD_AREA_POSITION
 
@@ -99,23 +101,19 @@ func _build_ui() -> void:
 	add_child(new_level_button)
 
 	game_over_backdrop = ColorRect.new()
-	game_over_backdrop.position = Vector2(110, 720)
-	game_over_backdrop.size = Vector2(860, 250)
-	game_over_backdrop.color = Color(0.04, 0.05, 0.08, 0.88)
+	game_over_backdrop.position = Vector2(110, 650)
+	game_over_backdrop.size = Vector2(860, 390)
+	game_over_backdrop.color = Color(0.04, 0.05, 0.08, 0.92)
 	game_over_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	game_over_backdrop.visible = false
 	add_child(game_over_backdrop)
 
 	game_over_label = Label.new()
-	game_over_label.text = "GAME OVER\nRestart to try again"
-	game_over_label.position = Vector2(110, 745)
-	game_over_label.size = Vector2(860, 200)
+	game_over_label.position = Vector2(140, 680)
+	game_over_label.size = Vector2(800, 330)
 	game_over_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	game_over_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	game_over_label.add_theme_font_size_override("font_size", 66)
-	game_over_label.add_theme_color_override("font_color", Color(1.0, 0.25, 0.25, 1.0))
-	game_over_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
-	game_over_label.add_theme_constant_override("outline_size", 8)
+	game_over_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	game_over_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	game_over_label.visible = false
 	add_child(game_over_label)
@@ -123,6 +121,8 @@ func _build_ui() -> void:
 func _start_new_level() -> void:
 	_clear_all_piece_nodes()
 	game_over = false
+	generation_failed = false
+	generation_failure_info.clear()
 	moves = 0
 	lives = MAX_LIVES
 	failed_piece_ids.clear()
@@ -131,6 +131,9 @@ func _start_new_level() -> void:
 	var piece_count: int = mini(START_PIECES + (level_number - 1), MAX_PIECES)
 	var board_size: Vector2i = _board_size_for_level(level_number)
 	var generated: Dictionary = generator.generate_chain(piece_count, board_size, level_number)
+	if bool(generated.get("generation_failed", false)) or not generated.has("board"):
+		_show_generation_failure(generated.get("diagnostics", {}), piece_count, board_size)
+		return
 	board = generated["board"]
 	initial_board = board.copy()
 	_update_board_layout()
@@ -158,6 +161,9 @@ func _update_board_layout() -> void:
 	current_board_origin = BOARD_AREA_POSITION + (BOARD_AREA_SIZE - board_pixel_size) * 0.5
 
 func _restart_level() -> void:
+	if generation_failed:
+		_start_new_level()
+		return
 	_clear_all_piece_nodes()
 	board = initial_board.copy()
 	moves = 0
@@ -171,7 +177,7 @@ func _restart_level() -> void:
 	_update_status()
 
 func _next_level() -> void:
-	if game_over:
+	if game_over or generation_failed:
 		return
 	level_number += 1
 	_start_new_level()
@@ -181,10 +187,45 @@ func _set_game_over_banner(value: bool) -> void:
 		game_over_backdrop.visible = value
 	if is_instance_valid(game_over_label):
 		game_over_label.visible = value
+	if value and is_instance_valid(game_over_label):
+		game_over_label.text = "GAME OVER\nRestart to try again"
+		game_over_label.add_theme_font_size_override("font_size", 58)
+		game_over_label.add_theme_color_override("font_color", Color(1.0, 0.25, 0.25, 1.0))
+		game_over_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
+		game_over_label.add_theme_constant_override("outline_size", 8)
 	if value and is_instance_valid(game_over_backdrop):
 		move_child(game_over_backdrop, get_child_count() - 1)
 	if value and is_instance_valid(game_over_label):
 		move_child(game_over_label, get_child_count() - 1)
+
+func _show_generation_failure(info: Dictionary, requested_pieces: int, board_size: Vector2i) -> void:
+	generation_failed = true
+	generation_failure_info = info.duplicate()
+	var reason := String(info.get("reason", "unknown generator failure"))
+	var attempts := int(info.get("attempts", 0))
+	var max_pieces := int(info.get("max_pieces_placed", info.get("pieces_placed", 0)))
+	var max_density := float(info.get("max_density", 0.0)) * 100.0
+	var target_density := float(info.get("target_density", 0.0)) * 100.0
+	var graph_failures := int(info.get("graph_failures", 0))
+
+	level_label.text = "Level %d · generation diagnostics" % level_number
+	moves_label.text = ""
+	lives_label.text = ""
+	status_label.text = "GENERATION FAILED"
+	hint_label.text = "Restart = retry generator"
+	new_level_button.disabled = true
+	hint_button.disabled = true
+	restart_button.disabled = false
+
+	game_over_backdrop.visible = true
+	game_over_label.visible = true
+	game_over_label.text = "GENERATION FAILED\n\nReason: %s\nBoard: %dx%d · requested: %d pieces\nBest attempt: %d pieces · %.1f%% density\nTarget density: %.1f%% · attempts: %d\nDependency verification failures: %d\n\nPress Restart to retry" % [reason, board_size.x, board_size.y, requested_pieces, max_pieces, max_density, target_density, attempts, graph_failures]
+	game_over_label.add_theme_font_size_override("font_size", 28)
+	game_over_label.add_theme_color_override("font_color", Color(1.0, 0.72, 0.28, 1.0))
+	game_over_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.95))
+	game_over_label.add_theme_constant_override("outline_size", 5)
+	move_child(game_over_backdrop, get_child_count() - 1)
+	move_child(game_over_label, get_child_count() - 1)
 
 func _clear_all_piece_nodes() -> void:
 	for node in piece_nodes.values():
@@ -224,7 +265,7 @@ func _render_board() -> void:
 		piece_nodes[piece_id] = view
 
 func _on_piece_pressed(piece_id: String, view) -> void:
-	if game_over or not board.pieces.has(piece_id) or active_exit_nodes.has(piece_id):
+	if game_over or generation_failed or not board.pieces.has(piece_id) or active_exit_nodes.has(piece_id):
 		return
 	if board.can_exit(piece_id):
 		_start_exit_animation(piece_id, view)
@@ -308,7 +349,7 @@ func _release_open_failed_pieces() -> void:
 				break
 
 func _show_hint() -> void:
-	if game_over or board.is_solved():
+	if generation_failed or game_over or board.is_solved():
 		return
 	for node in piece_nodes.values():
 		node.set_hint(false)
@@ -326,6 +367,8 @@ func _set_piece_input_enabled(value: bool) -> void:
 		piece_nodes[piece_id].set_enabled(value and not game_over)
 
 func _update_status() -> void:
+	if generation_failed:
+		return
 	level_label.text = "Level %d · %d pieces left" % [level_number, board.pieces.size()]
 	moves_label.text = "Moves: %d" % moves
 	lives_label.text = "Lives: %d/%d" % [lives, MAX_LIVES]
