@@ -212,6 +212,9 @@ func _show_generation_failure(info: Dictionary, requested_pieces: int, board_siz
 	var target_density := float(info.get("target_density", 0.0)) * 100.0
 	var graph_failures := int(info.get("graph_failures", 0))
 	var backtracks := int(info.get("backtracks", 0))
+	var average_length := float(info.get("average_thread_length", 0.0))
+	var max_length := int(info.get("max_thread_length", 0))
+	var backtracks := int(info.get("backtracks", 0))
 
 	level_label.text = "Level %d · generation diagnostics" % level_number
 	moves_label.text = ""
