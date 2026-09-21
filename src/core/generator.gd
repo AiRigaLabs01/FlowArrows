@@ -34,6 +34,8 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 	var attempts_total := 0
 	var max_pieces_placed := 0
 	var max_occupied_cells := 0
+	var best_average_length := 0.0
+	var best_max_length := 0
 	var max_backtracks := 0
 	var last_reason := "no valid candidate"
 	var graph_failures := 0
@@ -44,8 +46,13 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 			var generated := _generate_reverse_solvable(piece_count, board_size, complexity, target_density)
 			if bool(generated.get("generation_failed", false)):
 				var diag: Dictionary = generated.get("diagnostics", {})
-				max_pieces_placed = maxi(max_pieces_placed, int(diag.get("pieces_placed", 0)))
-				max_occupied_cells = maxi(max_occupied_cells, int(diag.get("occupied_cells", 0)))
+				var placed := int(diag.get("pieces_placed", 0))
+				var occupied_cells := int(diag.get("occupied_cells", 0))
+				if placed > max_pieces_placed or (placed == max_pieces_placed and occupied_cells > max_occupied_cells):
+					max_pieces_placed = placed
+					max_occupied_cells = occupied_cells
+					best_average_length = float(diag.get("average_thread_length", 0.0))
+					best_max_length = int(diag.get("max_thread_length", 0))
 				max_backtracks = maxi(max_backtracks, int(diag.get("backtracks", 0)))
 				last_reason = String(diag.get("reason", last_reason))
 				if last_reason == "dependency verification failed":
@@ -76,6 +83,8 @@ func generate_chain(piece_count: int, board_size: Vector2i = Vector2i(8, 8), com
 			"max_pieces_placed": max_pieces_placed,
 			"max_occupied_cells": max_occupied_cells,
 			"max_density": 0.0 if board_cells <= 0 else float(max_occupied_cells) / float(board_cells),
+			"average_thread_length": best_average_length,
+			"max_thread_length": best_max_length,
 			"target_density": target_density,
 			"target_score": target_score,
 			"board_size": "%dx%d" % [board_size.x, board_size.y],
@@ -100,13 +109,19 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 	var backtracks := 0
 	var max_pieces_reached := 0
 	var max_occupied_reached := 0
+	var best_average_length := 0.0
+	var best_max_length := 0
 
 	# Dense generation tends to fail only near the end. Instead of throwing away a
 	# good 40+ piece partial board, rewind a few recent threads and explore a new
 	# local geometry. This is bounded backtracking, not a visual fallback.
 	while i < piece_count:
-		max_pieces_reached = maxi(max_pieces_reached, i)
-		max_occupied_reached = maxi(max_occupied_reached, occupied.size())
+		if i > max_pieces_reached or (i == max_pieces_reached and occupied.size() > max_occupied_reached):
+			max_pieces_reached = i
+			max_occupied_reached = occupied.size()
+			var length_stats := _thread_length_stats(pieces)
+			best_average_length = float(length_stats["average"])
+			best_max_length = int(length_stats["max"])
 		var remaining_pieces: int = piece_count - i
 		var remaining_target_cells: int = maxi(target_occupied_cells - occupied.size(), remaining_pieces * 3)
 		var ideal_length: int = maxi(3, int(round(float(remaining_target_cells) / float(remaining_pieces))))
@@ -139,6 +154,8 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 					"reason": "no exit-aware path after local backtracking near piece %d" % i,
 					"pieces_placed": max_pieces_reached,
 					"occupied_cells": max_occupied_reached,
+					"average_thread_length": best_average_length,
+					"max_thread_length": best_max_length,
 					"backtracks": backtracks,
 				}
 			}
@@ -149,8 +166,12 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 			occupied[_cell_key(cell)] = true
 		i += 1
 
-	max_pieces_reached = maxi(max_pieces_reached, pieces.size())
-	max_occupied_reached = maxi(max_occupied_reached, occupied.size())
+	if pieces.size() > max_pieces_reached or (pieces.size() == max_pieces_reached and occupied.size() > max_occupied_reached):
+		max_pieces_reached = pieces.size()
+		max_occupied_reached = occupied.size()
+		var final_length_stats := _thread_length_stats(pieces)
+		best_average_length = float(final_length_stats["average"])
+		best_max_length = int(final_length_stats["max"])
 	var board = BoardScript.new(board_size.x, board_size.y, pieces)
 	var known_solution: Array[String] = []
 	for solution_index in range(insertion_order.size() - 1, -1, -1):
@@ -164,15 +185,20 @@ func _generate_reverse_solvable(piece_count: int, board_size: Vector2i, complexi
 				"reason": "dependency verification failed",
 				"pieces_placed": pieces.size(),
 				"occupied_cells": occupied.size(),
+				"average_thread_length": _thread_length_stats(pieces)["average"],
+				"max_thread_length": _thread_length_stats(pieces)["max"],
 				"backtracks": backtracks,
 			}
 		}
 
+	var final_stats := _thread_length_stats(pieces)
 	return {
 		"board": board,
 		"known_solution": known_solution,
 		"difficulty": DifficultyScript.new().estimate(board, graph_solution),
 		"generation_backtracks": backtracks,
+		"average_thread_length": final_stats["average"],
+		"max_thread_length": final_stats["max"],
 	}
 
 func _build_exit_aware_path(board_size: Vector2i, occupied: Dictionary, complexity: int, ideal_length: int) -> Dictionary:
@@ -320,6 +346,20 @@ func _occupied_neighbor_count(cell: Vector2i, occupied: Dictionary) -> int:
 		if occupied.has(_cell_key(cell + direction)):
 			count += 1
 	return count
+
+func _thread_length_stats(pieces: Array) -> Dictionary:
+	if pieces.is_empty():
+		return {"average": 0.0, "max": 0}
+	var total := 0
+	var maximum := 0
+	for piece in pieces:
+		var length: int = piece.cells.size()
+		total += length
+		maximum = maxi(maximum, length)
+	return {
+		"average": float(total) / float(pieces.size()),
+		"max": maximum,
+	}
 
 func _piece_id(index: int) -> String:
 	return "P%d" % index
